@@ -1,0 +1,404 @@
+<%- include('partials/head') %>
+
+<div class="min-h-screen">
+  <header class="fixed inset-x-0 top-0 z-40 border-b border-slate-300 bg-white/95 backdrop-blur">
+    <div class="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-8">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-[0.25em] text-brand-700">Teacher Dashboard</p>
+        <h1 class="text-lg font-extrabold text-slate-950">Biometric Attendance</h1>
+      </div>
+      <div class="flex items-center gap-3 text-sm text-slate-800">
+        <span class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 font-medium">Live Monitoring</span>
+        <span><%= new Date().toLocaleDateString() %></span>
+      </div>
+    </div>
+  </header>
+
+  <aside class="fixed left-0 top-16 z-30 hidden h-[calc(100vh-4rem)] w-72 border-r border-slate-300 bg-white xl:block">
+    <div class="h-full overflow-y-auto p-4">
+      <div class="rounded-2xl border border-slate-300 bg-slate-50 p-4">
+        <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-700">Classes</p>
+        <p class="mt-2 text-sm font-medium text-slate-800">Add classes and switch between them to manage students class-wise.</p>
+      </div>
+      <div class="mt-4 space-y-2" id="classNav">
+        <% if (classes && classes.length) { %>
+          <% classes.forEach((cls) => { %>
+            <a href="/?classId=<%= cls._id %>" class="block w-full rounded-xl border px-3 py-2 text-left text-sm font-semibold transition <%= String(activeClassId) === String(cls._id) ? 'border-brand-300 bg-brand-50 text-brand-800' : 'border-slate-300 text-slate-800 hover:bg-slate-50' %>">
+              <div class="flex items-center justify-between gap-2">
+                <span class="truncate"><%= cls.name %></span>
+                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700"><%= cls.studentCount || 0 %></span>
+              </div>
+            </a>
+          <% }) %>
+        <% } else { %>
+          <p class="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-700">No classes yet. Create your first class below.</p>
+        <% } %>
+      </div>
+
+      <form id="createClassForm" class="mt-4 space-y-2 rounded-2xl border border-slate-300 bg-white p-3">
+        <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-700">Create Class</p>
+        <input name="name" type="text" required placeholder="Class name" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
+        <input name="code" type="text" required placeholder="Class code" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
+        <button type="submit" class="w-full rounded-lg bg-brand-700 px-3 py-2 text-sm font-bold text-white transition hover:bg-brand-600">Add Class</button>
+      </form>
+    </div>
+  </aside>
+
+  <main class="pt-20 xl:pl-72">
+    <div class="mx-auto max-w-[1600px] space-y-6 px-4 pb-8 sm:px-6 lg:px-8">
+      <% if (notice) { %>
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"><%= notice %></div>
+      <% } %>
+      <% if (error) { %>
+        <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800"><%= error %></div>
+      <% } %>
+
+      <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <article class="rounded-2xl border border-slate-300 bg-white p-5 shadow-soft">
+          <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-700">Students</p>
+          <p class="mt-2 text-3xl font-extrabold text-slate-950"><%= stats.students %></p>
+        </article>
+        <article class="rounded-2xl border border-slate-300 bg-white p-5 shadow-soft">
+          <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-700">Today Punch In</p>
+          <p class="mt-2 text-3xl font-extrabold text-emerald-700"><%= stats.punchIn %></p>
+        </article>
+        <article class="rounded-2xl border border-slate-300 bg-white p-5 shadow-soft">
+          <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-700">Today Punch Out</p>
+          <p class="mt-2 text-3xl font-extrabold text-rose-700"><%= stats.punchOut %></p>
+        </article>
+        <article class="rounded-2xl border border-slate-300 bg-white p-5 shadow-soft">
+          <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-700">Active Sessions</p>
+          <p class="mt-2 text-3xl font-extrabold text-brand-700"><%= stats.activeSessions %></p>
+        </article>
+      </section>
+
+      <section class="grid gap-6 2xl:grid-cols-5">
+        <div class="2xl:col-span-2 rounded-2xl border border-slate-300 bg-white p-6 shadow-soft">
+          <div class="mb-5">
+            <p class="text-xs font-bold uppercase tracking-[0.2em] text-brand-700">Student Registration</p>
+            <h2 class="mt-1 text-xl font-extrabold text-slate-950">Register a new student</h2>
+          </div>
+          <form method="post" action="/students" id="enrollmentForm" class="space-y-4">
+            <input type="hidden" name="classId" value="<%= activeClassId || '' %>">
+            <label class="block">
+              <span class="mb-1 block text-sm font-semibold text-slate-900">Roll number</span>
+              <input class="w-full rounded-xl border border-slate-400 bg-white px-3 py-2.5 text-sm font-medium text-slate-950 outline-none ring-brand-200 transition focus:border-brand-600 focus:ring" type="text" name="rollNumber" placeholder="23CS101" required <%= activeClassId ? '' : 'disabled' %>>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-sm font-semibold text-slate-900">Full name</span>
+              <input class="w-full rounded-xl border border-slate-400 bg-white px-3 py-2.5 text-sm font-medium text-slate-950 outline-none ring-brand-200 transition focus:border-brand-600 focus:ring" type="text" name="name" placeholder="Student name" required <%= activeClassId ? '' : 'disabled' %>>
+            </label>
+            <p class="text-xs font-medium text-slate-700">Submitting starts ESP32 enrollment. Student is saved only after fingerprint capture succeeds.</p>
+            <button type="submit" class="w-full rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-400" <%= activeClassId ? '' : 'disabled' %>>Start fingerprint enrollment</button>
+            <% if (!activeClassId) { %>
+              <p class="text-sm font-semibold text-amber-700">Create/select a class first to add students.</p>
+            <% } %>
+          </form>
+
+          <% if (pendingEnrollment) { %>
+            <div class="mt-5 rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm text-slate-700">
+              <p class="text-xs font-semibold uppercase tracking-[0.15em] text-brand-700">Enrollment in progress</p>
+              <p class="mt-2"><span class="font-semibold">Name:</span> <%= pendingEnrollment.name %></p>
+              <p><span class="font-semibold">Roll:</span> <%= pendingEnrollment.rollNumber %></p>
+              <p><span class="font-semibold">Fingerprint ID:</span> <%= pendingEnrollment.fingerprintId %></p>
+            </div>
+          <% } %>
+        </div>
+
+        <div class="2xl:col-span-3 rounded-2xl border border-slate-300 bg-white p-6 shadow-soft">
+          <div class="mb-5 flex items-center justify-between">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-[0.2em] text-brand-700">Student List</p>
+              <h2 class="mt-1 text-xl font-extrabold text-slate-950">Registered students</h2>
+            </div>
+          </div>
+          <div class="overflow-x-auto rounded-xl border border-slate-300">
+            <table class="min-w-full text-sm">
+              <thead class="bg-slate-50 text-slate-600">
+                <tr>
+                  <th class="px-4 py-3 text-left font-semibold">Roll</th>
+                  <th class="px-4 py-3 text-left font-semibold">Name</th>
+                  <th class="px-4 py-3 text-left font-semibold">Fingerprint ID</th>
+                  <th class="px-4 py-3 text-left font-semibold">Created</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 bg-white">
+                <% if (students.length) { %>
+                  <% students.forEach((student) => { %>
+                    <tr class="hover:bg-slate-50">
+                      <td class="px-4 py-3"><%= student.rollNumber %></td>
+                      <td class="px-4 py-3 font-medium text-slate-900"><%= student.name %></td>
+                      <td class="px-4 py-3"><span class="inline-flex rounded-full bg-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-700"><%= student.fingerprintId %></span></td>
+                      <td class="px-4 py-3 text-slate-600"><%= new Date(student.createdAt).toLocaleString() %></td>
+                    </tr>
+                  <% }) %>
+                <% } else { %>
+                  <tr><td colspan="4" class="px-4 py-10 text-center text-slate-500">No students registered yet.</td></tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+        <div class="mb-5">
+          <p class="text-xs font-bold uppercase tracking-[0.2em] text-brand-700">Attendance History</p>
+          <h2 class="mt-1 text-xl font-extrabold text-slate-950">Latest attendance logs</h2>
+        </div>
+        <div class="overflow-x-auto rounded-xl border border-slate-300">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-50 text-slate-600">
+              <tr>
+                <th class="px-4 py-3 text-left font-semibold">Time</th>
+                <th class="px-4 py-3 text-left font-semibold">Roll</th>
+                <th class="px-4 py-3 text-left font-semibold">Name</th>
+                <th class="px-4 py-3 text-left font-semibold">Fingerprint ID</th>
+                <th class="px-4 py-3 text-left font-semibold">Type</th>
+                <th class="px-4 py-3 text-left font-semibold">Source</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 bg-white">
+              <% if (logs.length) { %>
+                <% logs.forEach((log) => { %>
+                  <tr class="hover:bg-slate-50">
+                    <td class="px-4 py-3 text-slate-600"><%= new Date(log.createdAt).toLocaleString() %></td>
+                    <td class="px-4 py-3"><%= log.student.rollNumber %></td>
+                    <td class="px-4 py-3 font-medium text-slate-900"><%= log.student.name %></td>
+                    <td class="px-4 py-3"><%= log.student.fingerprintId %></td>
+                    <td class="px-4 py-3">
+                      <% if (log.eventType === 'IN') { %>
+                        <span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">IN</span>
+                      <% } else { %>
+                        <span class="inline-flex rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">OUT</span>
+                      <% } %>
+                    </td>
+                    <td class="px-4 py-3 text-slate-600"><%= log.source %></td>
+                  </tr>
+                <% }) %>
+              <% } else { %>
+                <tr><td colspan="6" class="px-4 py-10 text-center text-slate-500">No attendance has been marked yet.</td></tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/45 p-4" id="enrollmentModal" role="dialog" aria-modal="true" aria-labelledby="enrollmentModalTitle">
+  <div class="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+    <div class="mb-4 flex items-center justify-between">
+      <h3 id="enrollmentModalTitle" class="text-xl font-bold text-slate-900">Fingerprint Enrollment</h3>
+      <button type="button" class="rounded-lg border border-slate-300 px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-50" id="modalCloseBtn" aria-label="Close">x</button>
+    </div>
+    <div>
+      <p id="modalPrimaryText" class="text-base font-medium text-slate-800">Waiting to start...</p>
+      <p class="mt-1 text-sm text-slate-500" id="modalSecondaryText"></p>
+      <div class="mt-4 inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.15em]" id="modalStatePill">IDLE</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const form = document.getElementById('enrollmentForm');
+    const modal = document.getElementById('enrollmentModal');
+    const modalPrimaryText = document.getElementById('modalPrimaryText');
+    const modalSecondaryText = document.getElementById('modalSecondaryText');
+    const modalStatePill = document.getElementById('modalStatePill');
+    const closeBtn = document.getElementById('modalCloseBtn');
+    const createClassForm = document.getElementById('createClassForm');
+    let pollTimer = null;
+    let pollCount = 0;
+    const maxPollDuration = 90000; // 90 seconds max
+
+    if (!form) {
+      console.error('enrollmentForm not found');
+      return;
+    }
+
+    const pillBaseClasses = 'mt-4 inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.15em]';
+
+    function openModal() {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      pollCount = 0;
+    }
+
+    function closeModal() {
+      modal.classList.remove('flex');
+      modal.classList.add('hidden');
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function setModalState(state, primary, secondary) {
+      console.log('Modal state:', state, primary);
+      modalPrimaryText.textContent = primary || '';
+      modalSecondaryText.textContent = secondary || '';
+      modalStatePill.textContent = String(state || 'UNKNOWN').toUpperCase();
+      const normalizedState = String(state || 'unknown').toLowerCase();
+      let stateClasses = 'border-slate-300 bg-slate-100 text-slate-700';
+      if (normalizedState === 'starting' || normalizedState === 'pending') {
+        stateClasses = 'border-blue-200 bg-blue-100 text-blue-700';
+      } else if (normalizedState === 'saved') {
+        stateClasses = 'border-emerald-200 bg-emerald-100 text-emerald-700';
+      } else if (normalizedState === 'failed' || normalizedState === 'error') {
+        stateClasses = 'border-rose-200 bg-rose-100 text-rose-700';
+      }
+      modalStatePill.className = pillBaseClasses + ' ' + stateClasses;
+    }
+
+    async function fetchEnrollmentStatus() {
+      const response = await fetch('/api/device/enrollment/status', { headers: { Accept: 'application/json' } });
+      if (!response.ok) {
+        throw new Error('Status endpoint returned ' + response.status);
+      }
+      return response.json();
+    }
+
+    function startPolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+      }
+      pollCount = 0;
+
+      pollTimer = setInterval(async () => {
+        pollCount += 1;
+        try {
+          const data = await fetchEnrollmentStatus();
+          console.log('Poll #' + pollCount, data);
+
+          if (data.pendingEnrollment) {
+            setModalState(
+              'pending',
+              'Enrollment in progress',
+              `Waiting for ESP32 to capture fingerprint...`
+            );
+            return;
+          }
+
+          if (data.lastEnrollmentStatus) {
+            const s = data.lastEnrollmentStatus;
+            console.log('Last enrollment status:', s);
+            setModalState(s.state || 'unknown', s.message || 'No message', '');
+
+            if (s.state === 'saved') {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              setTimeout(() => {
+                closeModal();
+                location.reload();
+              }, 2000);
+              return;
+            }
+
+            if (s.state === 'failed' || s.state === 'error') {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              setTimeout(() => {
+                closeModal();
+              }, 3000);
+              return;
+            }
+          }
+
+          if (pollCount * 1000 > maxPollDuration) {
+            console.warn('Poll timeout after 90 seconds');
+            setModalState('error', 'Enrollment timeout. Check ESP32 and try again.', '');
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        } catch (error) {
+          console.error('Poll error:', error);
+          setModalState('error', 'Status polling failed', error.message);
+        }
+      }, 1000);
+    }
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      console.log('Form submitted');
+      const formData = new FormData(form);
+      const rollNumber = formData.get('rollNumber');
+      const name = formData.get('name');
+      const classId = formData.get('classId');
+      console.log('Submitting:', { rollNumber, name, classId });
+
+      openModal();
+      setModalState('starting', 'Starting enrollment...', 'Sending request to server');
+
+      try {
+        const response = await fetch('/students', {
+          method: 'POST',
+          body: new URLSearchParams(formData),
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        console.log('Server response:', response.status, data);
+
+        if (!response.ok || !data.ok) {
+          setModalState('failed', data.message || 'Unable to start enrollment', 'Check console for details.');
+          return;
+        }
+
+        form.reset();
+        setModalState('pending', data.message || 'Enrollment started', 'Ask student to place the same finger twice on ESP32.');
+        startPolling();
+      } catch (error) {
+        console.error('Fetch error:', error);
+        setModalState('error', 'Network error while starting enrollment', error.message);
+      }
+    });
+
+    if (createClassForm) {
+      createClassForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const formData = new FormData(createClassForm);
+
+        try {
+          const response = await fetch('/api/classes', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({
+              name: String(formData.get('name') || '').trim(),
+              code: String(formData.get('code') || '').trim(),
+            }),
+          });
+
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            alert(data.message || 'Unable to create class');
+            return;
+          }
+
+          createClassForm.reset();
+          if (data.class && data.class._id) {
+            window.location.href = '/?classId=' + encodeURIComponent(data.class._id);
+            return;
+          }
+          window.location.reload();
+        } catch (error) {
+          alert('Failed to create class');
+        }
+      });
+    }
+
+    console.log('Enrollment script loaded successfully');
+  })();
+</script>
+<%- include('partials/footer') %>
