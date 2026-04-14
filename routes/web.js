@@ -5,6 +5,7 @@ const express = require('express');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const passport = require('passport');
+const ExcelJS = require('exceljs');
 const router = express.Router();
 
 function todayStart() {
@@ -45,6 +46,94 @@ function toDateInputValue(date) {
   return `${y}-${m}-${day}`;
 }
 
+async function buildRangeAttendanceMatrix(Student, Attendance, classObjectId, filterStart, filterEnd) {
+  const students = await Student.find({ classId: classObjectId }).sort({ createdAt: -1 }).lean();
+  const studentIds = students.map((s) => s._id);
+
+  let rangeDates = [];
+  let rangeRows = [];
+  let inCount = 0;
+  let outCount = 0;
+
+  if (!studentIds.length) {
+    return { students, rangeDates, rangeRows, inCount, outCount };
+  }
+
+  const filteredLogs = await Attendance.find({
+    student: { $in: studentIds },
+    createdAt: { $gte: filterStart, $lte: filterEnd },
+  })
+    .sort({ createdAt: 1 })
+    .lean();
+
+  const cursor = new Date(filterStart);
+  while (cursor <= filterEnd) {
+    const key = toDateInputValue(cursor);
+    rangeDates.push({
+      key,
+      label: cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      dayName: cursor.toLocaleDateString('en-US', { weekday: 'short' }),
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const dateKeys = rangeDates.map((d) => d.key);
+  const rangeMap = new Map(
+    students.map((student) => [
+      String(student._id),
+      {
+        student,
+        days: Object.fromEntries(dateKeys.map((k) => [k, { inAt: null, outAt: null, present: false }])),
+        totalPresents: 0,
+      },
+    ]),
+  );
+
+  for (const log of filteredLogs) {
+    const key = String(log.student);
+    const row = rangeMap.get(key);
+    if (!row) {
+      continue;
+    }
+
+    const dayKey = toDateInputValue(log.createdAt);
+    const day = row.days[dayKey];
+    if (!day) {
+      continue;
+    }
+
+    day.present = true;
+    if (log.eventType === 'IN' && !day.inAt) {
+      day.inAt = log.createdAt;
+      continue;
+    }
+    if (log.eventType === 'OUT' && !day.outAt) {
+      day.outAt = log.createdAt;
+    }
+  }
+
+  rangeRows = Array.from(rangeMap.values())
+    .map((row) => {
+      const totalPresents = rangeDates.reduce((sum, d) => {
+        const day = row.days[d.key];
+        return sum + (day && day.present ? 1 : 0);
+      }, 0);
+      return { ...row, totalPresents };
+    })
+    .sort((a, b) => {
+      const byRoll = String(a.student.rollNumber || '').localeCompare(String(b.student.rollNumber || ''));
+      if (byRoll !== 0) {
+        return byRoll;
+      }
+      return String(a.student.name || '').localeCompare(String(b.student.name || ''));
+    });
+
+  inCount = filteredLogs.filter((log) => log.eventType === 'IN').length;
+  outCount = filteredLogs.filter((log) => log.eventType === 'OUT').length;
+
+  return { students, rangeDates, rangeRows, inCount, outCount };
+}
+
 module.exports = (
   ClassModel,
   Student,
@@ -56,9 +145,27 @@ module.exports = (
   setLastEnrollmentStatus,
   getPendingTemplateDeletes,
   setPendingTemplateDeletes,
+  getPendingSensorClear,
+  getLastSensorClearStatus,
+  setPendingSensorClear,
+  setLastSensorClearStatus,
+  resetAllOngoingOperations,
 ) => {
+  const ENROLLMENT_STALE_MS = 5 * 60 * 1000;
+
   function isAdminAuthenticated(req) {
     return typeof req.isAuthenticated === 'function' && req.isAuthenticated();
+  }
+
+  function shouldAutoResetPendingEnrollment(pending) {
+    if (!pending || !pending.createdAt) {
+      return false;
+    }
+    const createdAt = new Date(pending.createdAt);
+    if (Number.isNaN(createdAt.getTime())) {
+      return true;
+    }
+    return (Date.now() - createdAt.getTime()) > ENROLLMENT_STALE_MS;
   }
 
   function denyAdminAccess(req, res) {
@@ -131,7 +238,33 @@ module.exports = (
   });
 
   // Require admin auth for all web pages and web actions after login/logout routes.
-  router.use((req, res, next) => requireAdmin(req, res, next));
+  router.use((req, res, next) => {
+    // Keep device/API endpoints public so ESP32 attendance and sync continue working.
+    if (String(req.path || '').startsWith('/api/')) {
+      return next();
+    }
+    return requireAdmin(req, res, next);
+  });
+
+  // POST /admin/operations/reset - Clear all in-memory pending operations/queues
+  router.post('/admin/operations/reset', requireAdmin, (req, res) => {
+    try {
+      const wantsJson = req.accepts(['json', 'html']) === 'json';
+      resetAllOngoingOperations('reset by admin');
+
+      if (wantsJson) {
+        return res.json({ ok: true, message: 'All ongoing operations reset successfully.' });
+      }
+
+      return res.redirect('/admin');
+    } catch (error) {
+      console.error('POST /admin/operations/reset error:', error);
+      if (req.accepts(['json', 'html']) === 'json') {
+        return res.status(500).json({ ok: false, message: 'Unable to reset ongoing operations.' });
+      }
+      return res.redirect('/admin');
+    }
+  });
 
   // GET / - Home/landing page with system overview
   router.get('/', async (req, res) => {
@@ -297,70 +430,11 @@ module.exports = (
           .lean();
 
         if (isRangeMode) {
-          const cursor = new Date(filterStart);
-          while (cursor <= filterEnd) {
-            const key = toDateInputValue(cursor);
-            rangeDates.push({
-              key,
-              label: cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-              dayName: cursor.toLocaleDateString('en-US', { weekday: 'short' }),
-            });
-            cursor.setDate(cursor.getDate() + 1);
-          }
-
-          const dateKeys = rangeDates.map((d) => d.key);
-          const rangeMap = new Map(
-            students.map((student) => [
-              String(student._id),
-              {
-                student,
-                days: Object.fromEntries(dateKeys.map((k) => [k, { inAt: null, outAt: null, present: false }])),
-                totalPresents: 0,
-              },
-            ]),
-          );
-
-          for (const log of filteredLogs) {
-            const key = String(log.student);
-            const row = rangeMap.get(key);
-            if (!row) {
-              continue;
-            }
-
-            const dayKey = toDateInputValue(log.createdAt);
-            const day = row.days[dayKey];
-            if (!day) {
-              continue;
-            }
-
-            day.present = true;
-            if (log.eventType === 'IN' && !day.inAt) {
-              day.inAt = log.createdAt;
-              continue;
-            }
-            if (log.eventType === 'OUT' && !day.outAt) {
-              day.outAt = log.createdAt;
-            }
-          }
-
-          rangeRows = Array.from(rangeMap.values())
-            .map((row) => {
-              const totalPresents = rangeDates.reduce((sum, d) => {
-                const day = row.days[d.key];
-                return sum + (day && day.present ? 1 : 0);
-              }, 0);
-              return { ...row, totalPresents };
-            })
-            .sort((a, b) => {
-              const byRoll = String(a.student.rollNumber || '').localeCompare(String(b.student.rollNumber || ''));
-              if (byRoll !== 0) {
-                return byRoll;
-              }
-              return String(a.student.name || '').localeCompare(String(b.student.name || ''));
-            });
-
-          inCount = filteredLogs.filter((log) => log.eventType === 'IN').length;
-          outCount = filteredLogs.filter((log) => log.eventType === 'OUT').length;
+          const rangeData = await buildRangeAttendanceMatrix(Student, Attendance, classObjectId, filterStart, filterEnd);
+          rangeDates = rangeData.rangeDates;
+          rangeRows = rangeData.rangeRows;
+          inCount = rangeData.inCount;
+          outCount = rangeData.outCount;
         } else {
           logs = await Attendance.find({
             student: { $in: studentIds },
@@ -470,6 +544,136 @@ module.exports = (
     }
   });
 
+  // GET /class/:classId/attendance/range/export - Export date-range attendance matrix to colored Excel
+  router.get('/class/:classId/attendance/range/export', async (req, res) => {
+    try {
+      const classId = String(req.params.classId || '').trim();
+      if (!mongoose.Types.ObjectId.isValid(classId)) {
+        return res.redirect('/');
+      }
+
+      const classObjectId = new mongoose.Types.ObjectId(classId);
+      const targetClass = await ClassModel.findById(classObjectId).select('_id name').lean();
+      if (!targetClass) {
+        return res.redirect('/');
+      }
+
+      let rangeFrom = parseDateOnly(req.query.fromDate);
+      let rangeTo = parseDateOnly(req.query.toDate);
+      if (!rangeFrom || !rangeTo) {
+        return res.redirect(`/class/${encodeURIComponent(classId)}/attendance`);
+      }
+      if (rangeFrom > rangeTo) {
+        const tmp = rangeFrom;
+        rangeFrom = rangeTo;
+        rangeTo = tmp;
+      }
+
+      const filterStart = toStartOfDay(rangeFrom);
+      const filterEnd = toEndOfDay(rangeTo);
+      const { rangeDates, rangeRows } = await buildRangeAttendanceMatrix(Student, Attendance, classObjectId, filterStart, filterEnd);
+
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Biometric Attendance System';
+      workbook.created = new Date();
+
+      const ws = workbook.addWorksheet('Attendance Range', {
+        views: [{ state: 'frozen', xSplit: 2, ySplit: 1 }],
+      });
+
+      const header = ['Student Name', 'Roll Number', ...rangeDates.map((d) => `${d.dayName} ${d.label}`), 'Total Presents'];
+      ws.addRow(header);
+
+      const headerRow = ws.getRow(1);
+      headerRow.height = 24;
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      headerRow.eachCell((cell, colNumber) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: colNumber === header.length ? 'FFF59E0B' : 'FF1E3A8A' },
+        };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        };
+      });
+
+      for (const rowData of rangeRows) {
+        const values = [rowData.student.name, rowData.student.rollNumber];
+        for (const d of rangeDates) {
+          const day = rowData.days[d.key];
+          if (day && (day.inAt || day.outAt)) {
+            const inText = day.inAt ? new Date(day.inAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+            const outText = day.outAt ? new Date(day.outAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+            values.push(`IN ${inText}\nOUT ${outText}`);
+          } else {
+            values.push('ABSENT');
+          }
+        }
+        values.push(rowData.totalPresents);
+
+        const row = ws.addRow(values);
+        row.height = 32;
+
+        row.eachCell((cell, colNumber) => {
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+          };
+
+          if (colNumber <= 2) {
+            cell.alignment = { vertical: 'middle', horizontal: colNumber === 1 ? 'left' : 'center' };
+            return;
+          }
+
+          if (colNumber === header.length) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+            cell.font = { bold: true, color: { argb: 'FF92400E' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            return;
+          }
+
+          if (String(cell.value || '').toUpperCase() === 'ABSENT') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+            cell.font = { bold: true, color: { argb: 'FFB91C1C' } };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            return;
+          }
+
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+          cell.font = { color: { argb: 'FF166534' } };
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        });
+      }
+
+      ws.getColumn(1).width = 28;
+      ws.getColumn(2).width = 14;
+      for (let i = 3; i < header.length; i++) {
+        ws.getColumn(i).width = 16;
+      }
+      ws.getColumn(header.length).width = 14;
+
+      const fromText = toDateInputValue(filterStart);
+      const toText = toDateInputValue(filterEnd);
+      const safeClassName = String(targetClass.name || 'class').replace(/[^a-zA-Z0-9_-]+/g, '_');
+      const filename = `${safeClassName}_${fromText}_to_${toText}.xlsx`;
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      await workbook.xlsx.write(res);
+      return res.end();
+    } catch (error) {
+      console.error('GET /class/:classId/attendance/range/export error:', error);
+      return res.status(500).json({ ok: false, message: 'Unable to export attendance range Excel.' });
+    }
+  });
+
   // POST /students - Register new student (triggers enrollment)
   router.post('/students', requireAdmin, async (req, res) => {
     try {
@@ -503,12 +707,26 @@ module.exports = (
         return res.redirect('/');
       }
 
-      if (getPendingEnrollment()) {
-        const message = 'An enrollment is already in progress. Complete it before adding another student.';
-        if (wantsJson) {
-          return res.status(409).json({ ok: false, message, pendingEnrollment: getPendingEnrollment() });
+      const pendingEnrollment = getPendingEnrollment();
+      if (pendingEnrollment) {
+        if (shouldAutoResetPendingEnrollment(pendingEnrollment)) {
+          resetAllOngoingOperations('stale enrollment auto-reset');
+          setLastEnrollmentStatus({
+            state: 'reset',
+            requestId: pendingEnrollment.requestId,
+            message: 'Stale enrollment was auto-reset before starting a new one.',
+            at: new Date(),
+          });
+        } else {
+          // Admin explicitly requested to end earlier operations and proceed with a fresh enrollment.
+          resetAllOngoingOperations('superseded by new enrollment request');
+          setLastEnrollmentStatus({
+            state: 'reset',
+            requestId: pendingEnrollment.requestId,
+            message: 'Previous enrollment was reset to start a new enrollment.',
+            at: new Date(),
+          });
         }
-        return res.redirect(`/class/${encodeURIComponent(classId)}`);
       }
 
       const existing = await Student.findOne({ rollNumber }).select('_id');
@@ -641,12 +859,25 @@ module.exports = (
         return res.redirect(classId ? `/class/${encodeURIComponent(classId)}` : '/');
       }
 
-      if (getPendingEnrollment()) {
-        const message = 'An enrollment is already in progress. Complete it before starting another.';
-        if (wantsJson) {
-          return res.status(409).json({ ok: false, message, pendingEnrollment: getPendingEnrollment() });
+      const pendingEnrollment = getPendingEnrollment();
+      if (pendingEnrollment) {
+        if (shouldAutoResetPendingEnrollment(pendingEnrollment)) {
+          resetAllOngoingOperations('stale enrollment auto-reset');
+          setLastEnrollmentStatus({
+            state: 'reset',
+            requestId: pendingEnrollment.requestId,
+            message: 'Stale enrollment was auto-reset before starting fingerprint registration.',
+            at: new Date(),
+          });
+        } else {
+          resetAllOngoingOperations('superseded by new fingerprint registration request');
+          setLastEnrollmentStatus({
+            state: 'reset',
+            requestId: pendingEnrollment.requestId,
+            message: 'Previous enrollment was reset to start new fingerprint registration.',
+            at: new Date(),
+          });
         }
-        return res.redirect(classId ? `/class/${encodeURIComponent(classId)}` : '/');
       }
 
       const student = await Student.findById(studentId)

@@ -94,6 +94,47 @@ const setLastSensorClearStatus = (value) => {
   lastSensorClearStatus = value;
 };
 
+const resetAllOngoingOperations = (reason = "manual reset") => {
+  const now = new Date();
+
+  if (pendingEnrollment) {
+    lastEnrollmentStatus = {
+      state: "reset",
+      requestId: pendingEnrollment.requestId,
+      message: `Enrollment reset: ${reason}`,
+      at: now,
+    };
+  }
+
+  if (pendingMigration) {
+    lastMigrationStatus = {
+      state: "reset",
+      requestId: pendingMigration.requestId,
+      total: Array.isArray(pendingMigration.students) ? pendingMigration.students.length : 0,
+      processed: Number(pendingMigration.currentIndex || 0),
+      exported: Number(pendingMigration.results?.exported || 0),
+      exportFailed: Number(pendingMigration.results?.exportFailed || 0),
+      scannerCleared: false,
+      message: `Migration reset: ${reason}`,
+      at: now,
+    };
+  }
+
+  if (pendingSensorClear) {
+    lastSensorClearStatus = {
+      state: "reset",
+      requestId: pendingSensorClear.requestId,
+      message: `Sensor clear reset: ${reason}`,
+      at: now,
+    };
+  }
+
+  pendingEnrollment = null;
+  pendingMigration = null;
+  pendingTemplateDeletes = [];
+  pendingSensorClear = null;
+};
+
 // Import and use route modules
 app.use(
   createWebRoutes(
@@ -111,6 +152,7 @@ app.use(
     getLastSensorClearStatus,
     setPendingSensorClear,
     setLastSensorClearStatus,
+    resetAllOngoingOperations,
   ),
 );
 app.use(
@@ -124,6 +166,10 @@ app.use(
     setLastEnrollmentStatus,
     getPendingTemplateDeletes,
     setPendingTemplateDeletes,
+    getPendingSensorClear,
+    getLastSensorClearStatus,
+    setPendingSensorClear,
+    setLastSensorClearStatus,
   ),
 );
 app.use(createAttendanceRoutes(Student, Attendance));

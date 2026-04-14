@@ -200,16 +200,206 @@
   <% } %>
 <% } %>
 
+<section class="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 shadow-soft mb-6" id="liveEnrollmentSection">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <p class="text-xs font-bold uppercase tracking-widest text-indigo-700">Live Enrollment Sync</p>
+      <h3 class="mt-1 text-lg font-extrabold text-slate-950">ESP32 Enrollment Status</h3>
+    </div>
+    <span id="liveSyncBadge" class="inline-flex rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Checking...</span>
+  </div>
+  <p id="liveSyncText" class="mt-3 text-sm font-medium text-slate-700">Waiting for latest updates...</p>
+</section>
+
+<div id="uiDialogModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
+  <div class="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+    <h3 id="uiDialogTitle" class="text-xl font-extrabold text-slate-950">Action</h3>
+    <p id="uiDialogMessage" class="mt-2 text-sm text-slate-700"></p>
+
+    <div id="uiDialogChecklist" class="mt-4 hidden space-y-2 rounded-xl border border-rose-200 bg-rose-50 p-3">
+      <label class="flex items-center gap-2 text-sm text-rose-900">
+        <input type="checkbox" class="ui-triple-check h-4 w-4 accent-rose-600" />
+        I understand this action is permanent.
+      </label>
+      <label class="flex items-center gap-2 text-sm text-rose-900">
+        <input type="checkbox" class="ui-triple-check h-4 w-4 accent-rose-600" />
+        I understand related records may be removed from sensor queue.
+      </label>
+      <label class="flex items-center gap-2 text-sm text-rose-900">
+        <input type="checkbox" class="ui-triple-check h-4 w-4 accent-rose-600" />
+        I want to continue.
+      </label>
+    </div>
+
+    <div class="mt-6 flex gap-3">
+      <button id="uiDialogCancel" class="flex-1 rounded-lg bg-slate-200 px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-300">Cancel</button>
+      <button id="uiDialogConfirm" class="flex-1 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-700">Continue</button>
+    </div>
+  </div>
+</div>
+
+<div id="uiNoticeModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-[72] p-4">
+  <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+    <h3 id="uiNoticeTitle" class="text-xl font-extrabold text-slate-950">Notice</h3>
+    <p id="uiNoticeMessage" class="mt-2 text-sm text-slate-700"></p>
+    <button id="uiNoticeClose" class="mt-5 w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-700">OK</button>
+  </div>
+</div>
+
 <script>
-function tripleConfirm(message, title) {
-  const label = title || 'DELETE';
-  for (let step = 1; step <= 3; step++) {
-    const answer = prompt(`${label}: ${message}\n\nType DELETE to confirm (${step}/3)`);
-    if (String(answer || '').trim().toUpperCase() !== 'DELETE') {
-      return false;
-    }
+let currentDialogResolver = null;
+let enrollmentPollTimer = null;
+
+function openModal(id) {
+  document.getElementById(id)?.classList.remove('hidden');
+}
+
+function closeModal(id) {
+  document.getElementById(id)?.classList.add('hidden');
+}
+
+function showNotice(title, message) {
+  return new Promise((resolve) => {
+    const titleEl = document.getElementById('uiNoticeTitle');
+    const messageEl = document.getElementById('uiNoticeMessage');
+    const closeBtn = document.getElementById('uiNoticeClose');
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    openModal('uiNoticeModal');
+
+    const onClose = () => {
+      closeBtn.removeEventListener('click', onClose);
+      closeModal('uiNoticeModal');
+      resolve();
+    };
+    closeBtn.addEventListener('click', onClose);
+  });
+}
+
+function showConfirmDialog({ title, message, confirmText = 'Continue', danger = false, requireTriple = false }) {
+  return new Promise((resolve) => {
+    const titleEl = document.getElementById('uiDialogTitle');
+    const messageEl = document.getElementById('uiDialogMessage');
+    const checklistEl = document.getElementById('uiDialogChecklist');
+    const cancelBtn = document.getElementById('uiDialogCancel');
+    const confirmBtn = document.getElementById('uiDialogConfirm');
+    const checks = Array.from(document.querySelectorAll('.ui-triple-check'));
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    confirmBtn.textContent = confirmText;
+    confirmBtn.className = `flex-1 rounded-lg px-4 py-2.5 text-sm font-bold text-white ${danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-brand-600 hover:bg-brand-700'}`;
+
+    checks.forEach((c) => { c.checked = false; });
+    checklistEl.classList.toggle('hidden', !requireTriple);
+    confirmBtn.disabled = Boolean(requireTriple);
+    confirmBtn.classList.toggle('opacity-50', Boolean(requireTriple));
+
+    const refreshConfirmState = () => {
+      if (!requireTriple) {
+        confirmBtn.disabled = false;
+        confirmBtn.classList.remove('opacity-50');
+        return;
+      }
+      const allChecked = checks.every((c) => c.checked);
+      confirmBtn.disabled = !allChecked;
+      confirmBtn.classList.toggle('opacity-50', !allChecked);
+    };
+
+    checks.forEach((c) => c.addEventListener('change', refreshConfirmState));
+
+    const cleanup = () => {
+      checks.forEach((c) => c.removeEventListener('change', refreshConfirmState));
+      cancelBtn.removeEventListener('click', onCancel);
+      confirmBtn.removeEventListener('click', onConfirm);
+      closeModal('uiDialogModal');
+      currentDialogResolver = null;
+    };
+
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    const onConfirm = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    currentDialogResolver = resolve;
+    cancelBtn.addEventListener('click', onCancel);
+    confirmBtn.addEventListener('click', onConfirm);
+    openModal('uiDialogModal');
+    refreshConfirmState();
+  });
+}
+
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, options);
+  const contentType = String(res.headers.get('content-type') || '');
+  if (contentType.includes('application/json')) {
+    const data = await res.json();
+    return { ok: res.ok, data, status: res.status };
   }
-  return true;
+  const text = await res.text();
+  return {
+    ok: false,
+    status: res.status,
+    data: {
+      ok: false,
+      message: res.status === 401 ? 'Admin login required. Please login again.' : (text || 'Unexpected server response.'),
+    },
+  };
+}
+
+function setLiveSyncBadge(state, text) {
+  const badge = document.getElementById('liveSyncBadge');
+  const message = document.getElementById('liveSyncText');
+  if (!badge || !message) {
+    return;
+  }
+
+  const stateMap = {
+    pending: 'bg-amber-100 text-amber-800',
+    saved: 'bg-emerald-100 text-emerald-800',
+    failed: 'bg-rose-100 text-rose-800',
+    error: 'bg-rose-100 text-rose-800',
+    reset: 'bg-slate-200 text-slate-700',
+    idle: 'bg-slate-200 text-slate-700',
+  };
+
+  const classes = stateMap[state] || stateMap.idle;
+  badge.className = `inline-flex rounded-full px-3 py-1 text-xs font-semibold ${classes}`;
+  badge.textContent = state.toUpperCase();
+  message.textContent = text;
+}
+
+async function pollEnrollmentStatus() {
+  try {
+    const { data } = await fetchJson('/api/device/enrollment/status');
+    if (!data || data.ok === false && !data.pendingEnrollment && !data.lastEnrollmentStatus) {
+      setLiveSyncBadge('idle', 'Waiting for enrollment actions...');
+      return;
+    }
+
+    const pending = data.pendingEnrollment;
+    const last = data.lastEnrollmentStatus;
+
+    if (pending) {
+      setLiveSyncBadge('pending', `Pending: ${pending.name || 'Student'} (ID ${pending.fingerprintId || '-'}) - waiting for ESP32 scan.`);
+      return;
+    }
+
+    if (last && last.state) {
+      setLiveSyncBadge(String(last.state), String(last.message || 'Latest enrollment status updated.'));
+      return;
+    }
+
+    setLiveSyncBadge('idle', 'No enrollment in progress.');
+  } catch (err) {
+    setLiveSyncBadge('error', `Status check failed: ${err.message}`);
+  }
 }
 
 document.getElementById('classForm')?.addEventListener('submit', async e => {
@@ -225,14 +415,14 @@ document.getElementById('classForm')?.addEventListener('submit', async e => {
     });
     const data = await res.json();
     if (data.ok) {
-      alert(`✓ Class "${name}" created!`);
+      await showNotice('Class Created', `Class "${name}" created successfully.`);
       closeModal('classModal');
       window.location.reload();
     } else {
-      alert('✗ Error: ' + data.message);
+      await showNotice('Unable To Create Class', data.message || 'Something went wrong.');
     }
   } catch (err) {
-    alert('Network error: ' + err.message);
+    await showNotice('Network Error', err.message);
   }
 });
 
@@ -245,21 +435,23 @@ document.getElementById('studentForm')?.addEventListener('submit', async e => {
   if (!classId || !rollNumber || !name) return;
   
   try {
-    const res = await fetch('/students', {
+    const { data } = await fetchJson('/students', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ classId, rollNumber, name })
     });
-    const data = await res.json();
+
     if (data.ok) {
-      alert(`✓ Student "${name}" added with ID ${data.fingerprintId}.\n\nPlace their finger on the sensor to enroll.`);
+      const id = data.pendingEnrollment?.fingerprintId || data.fingerprintId || '-';
+      await showNotice('Enrollment Started', `Student "${name}" added. Fingerprint ID: ${id}. Ask student to place finger on ESP32 sensor.`);
       closeModal('studentModal');
+      await pollEnrollmentStatus();
       window.location.reload();
     } else {
-      alert('✗ Error: ' + data.message);
+      await showNotice('Unable To Start Enrollment', data.message || 'Request failed.');
     }
   } catch (err) {
-    alert('Network error: ' + err.message);
+    await showNotice('Network Error', err.message);
   }
 });
 
@@ -269,70 +461,105 @@ function openStudentModal(classId) {
   document.getElementById('studentRoll').focus();
 }
 
-function reenroll(studentId, studentName) {
-  if (!confirm(`Re-enroll ${studentName}? They'll need to place their finger on the sensor.`)) return;
-  
-  fetch(`/students/${studentId}/fingerprint/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ classId: '<%= activeClassId %>' })
-  })
-    .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        alert('✓ Enrollment started. Student should place finger on sensor.');
-      } else {
-        alert('✗ Error: ' + data.message);
-      }
-    })
-    .catch(err => alert('Network error: ' + err.message));
+async function reenroll(studentId, studentName) {
+  const confirmed = await showConfirmDialog({
+    title: 'Re-enroll Fingerprint',
+    message: `Start fingerprint re-enrollment for ${studentName}? The student must place their finger on ESP32 when prompted.`,
+    confirmText: 'Start Re-enroll',
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const { data } = await fetchJson(`/students/${studentId}/fingerprint/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classId: '<%= activeClassId %>' })
+    });
+
+    if (data.ok) {
+      await showNotice('Re-enrollment Queued', data.message || 'Enrollment started. Student should place finger on sensor.');
+      await pollEnrollmentStatus();
+      return;
+    }
+
+    await showNotice('Re-enrollment Failed To Start', data.message || 'Unable to queue enrollment request.');
+  } catch (err) {
+    await showNotice('Network Error', err.message);
+  }
 }
 
-function deleteStudent(studentId, studentName) {
-  if (!tripleConfirm(`Delete ${studentName}? This will remove the student, attendance records, and queued sensor template.`, 'DELETE STUDENT')) return;
-  
-  fetch(`/students/${studentId}/delete`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ classId: '<%= activeClassId %>' })
-  })
-    .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        alert('✓ Student deleted and sensor template removed.');
-        window.location.reload();
-      } else {
-        alert('✗ Error: ' + data.message);
-      }
-    })
-    .catch(err => alert('Network error: ' + err.message));
+async function deleteStudent(studentId, studentName) {
+  const confirmed = await showConfirmDialog({
+    title: 'Delete Student',
+    message: `Delete ${studentName}? This removes student record, attendance logs, and queues sensor template deletion.`,
+    confirmText: 'Delete Student',
+    danger: true,
+    requireTriple: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const { data } = await fetchJson(`/students/${studentId}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classId: '<%= activeClassId %>' })
+    });
+
+    if (data.ok) {
+      await showNotice('Student Deleted', 'Student deleted and sensor template queued for removal.');
+      window.location.reload();
+      return;
+    }
+
+    await showNotice('Delete Failed', data.message || 'Unable to delete student.');
+  } catch (err) {
+    await showNotice('Network Error', err.message);
+  }
 }
 
-function deleteWholeClass(classId, className) {
-  if (!tripleConfirm(`Delete class "${className}" and ALL related data? This removes students, attendance records, and queues sensor template deletions.`, 'DELETE CLASS')) return;
-  
-  fetch(`/class/${classId}/delete-all`, {
-    method: 'POST'
-  })
-    .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        alert(`✓ Class deleted (${data.deletedStudents} students removed, ${data.queuedSensorDeletes} sensor templates queued for deletion).`);
-        window.location.href = '/';
-      } else {
-        alert('✗ Error: ' + data.message);
-      }
-    })
-    .catch(err => alert('Network error: ' + err.message));
-}
+async function deleteWholeClass(classId, className) {
+  const confirmed = await showConfirmDialog({
+    title: 'Delete Entire Class',
+    message: `Delete class "${className}" with ALL students and attendance data? Sensor deletions will also be queued.`,
+    confirmText: 'Delete Class',
+    danger: true,
+    requireTriple: true,
+  });
+  if (!confirmed) {
+    return;
+  }
 
-function closeModal(modalId) {
-  document.getElementById(modalId).classList.add('hidden');
+  try {
+    const { data } = await fetchJson(`/class/${classId}/delete-all`, {
+      method: 'POST'
+    });
+
+    if (data.ok) {
+      await showNotice('Class Deleted', `Removed ${data.deletedStudents || 0} students and queued ${data.queuedSensorDeletes || 0} sensor template deletions.`);
+      window.location.href = '/';
+      return;
+    }
+
+    await showNotice('Class Delete Failed', data.message || 'Unable to delete class.');
+  } catch (err) {
+    await showNotice('Network Error', err.message);
+  }
 }
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    if (currentDialogResolver) {
+      currentDialogResolver(false);
+      currentDialogResolver = null;
+    }
     document.querySelectorAll('[id$="Modal"]').forEach(m => m.classList.add('hidden'));
   }
 });
+
+pollEnrollmentStatus();
+enrollmentPollTimer = setInterval(pollEnrollmentStatus, 2500);
 </script>
