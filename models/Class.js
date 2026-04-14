@@ -6,6 +6,11 @@ const ClassSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  sessionYear: {
+    type: String,
+    required: true,
+    trim: true,
+  },
   code: {
     type: String,
     required: true,

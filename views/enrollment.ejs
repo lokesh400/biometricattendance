@@ -1,0 +1,300 @@
+<!-- Class Selection & Quick Stats -->
+<section class="grid gap-4 sm:grid-cols-2">
+  <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+    <label class="block text-xs font-bold uppercase tracking-widest text-slate-600 mb-3">Select Class to Enroll</label>
+    <select id="enrollClassSelect" class="w-full px-4 py-3 border-2 border-brand-200 rounded-lg text-slate-900 bg-white focus:border-brand-600 focus:ring-2 focus:ring-brand-100 transition">
+      <option value="">-- Select a class --</option>
+      <% if (classes && classes.length) { %>
+        <% classes.forEach(cls => { %>
+          <option value="<%= cls._id %>"><%= cls.name %></option>
+        <% }) %>
+      <% } %>
+    </select>
+  </div>
+
+  <div id="classStatsCard" class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft hidden">
+    <p class="text-xs font-bold uppercase tracking-widest text-slate-600 mb-2">Class Stats</p>
+    <div class="space-y-1 text-sm">
+      <div><span class="font-semibold text-slate-900">Students:</span> <span id="classStudentCount" class="text-blue-600">0</span></div>
+      <div><span class="font-semibold text-slate-900">With Fingerprints:</span> <span id="classEnrolledCount" class="text-emerald-600">0</span></div>
+      <div><span class="font-semibold text-slate-900">Pending:</span> <span id="classPendingCount" class="text-orange-600">0</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- Quick Enroll Card -->
+<section class="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-soft">
+  <div class="mb-5">
+    <p class="text-xs font-bold uppercase tracking-widest text-emerald-700">Quick Enroll</p>
+    <h2 class="mt-2 text-xl font-extrabold text-slate-950">Add New Student</h2>
+  </div>
+
+  <form id="quickEnrollForm" class="space-y-4">
+    <input type="hidden" id="enrollClassIdHidden" value="">
+    
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">Roll Number</label>
+        <input 
+          type="text" 
+          id="enrollRollNumber" 
+          placeholder="e.g., CS001"
+          class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+          required
+        >
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">Full Name</label>
+        <input 
+          type="text" 
+          id="enrollName" 
+          placeholder="e.g., John Doe"
+          class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+          required
+        >
+      </div>
+    </div>
+
+    <button 
+      type="submit"
+      class="w-full px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition shadow-md"
+    >
+      🎯 Enroll Student (Auto-Assign Fingerprint ID)
+    </button>
+  </form>
+</section>
+
+<!-- Enrolled Students & Re-enrollment -->
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+  <div class="mb-5">
+    <p class="text-xs font-bold uppercase tracking-widest text-slate-600">Class Roster</p>
+    <h2 class="mt-2 text-xl font-extrabold text-slate-950">Students in Selected Class</h2>
+  </div>
+
+  <div id="enrollmentStudentList" class="overflow-x-auto rounded-xl border border-slate-300">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gradient-to-r from-slate-50 to-slate-100">
+        <tr>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Roll</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Fingerprint ID</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Status</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-200" id="studentTableBody">
+        <tr>
+          <td colspan="5" class="px-4 py-10 text-center text-slate-500">Select a class to view students</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Recent Enrollments -->
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+  <div class="mb-5">
+    <p class="text-xs font-bold uppercase tracking-widest text-slate-600">Activity</p>
+    <h2 class="mt-2 text-xl font-extrabold text-slate-950">Recent Enrollments (Last 50)</h2>
+  </div>
+
+  <div class="overflow-x-auto rounded-xl border border-slate-300">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gradient-to-r from-slate-50 to-slate-100">
+        <tr>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Time</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Roll</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Fingerprint ID</th>
+          <th class="px-4 py-3 text-left font-semibold text-slate-700">Result</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-200">
+        <% if (enrollmentLogs && enrollmentLogs.length) { %>
+          <% enrollmentLogs.forEach(log => { %>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3 text-slate-600 font-mono text-xs"><%= new Date(log.createdAt).toLocaleString() %></td>
+              <td class="px-4 py-3 font-medium text-slate-900"><%= log.student.rollNumber %></td>
+              <td class="px-4 py-3 text-slate-700"><%= log.student.name %></td>
+              <td class="px-4 py-3 font-mono text-xs text-brand-600"><%= log.student.fingerprintId %></td>
+              <td class="px-4 py-3">
+                <% if (log.status === 'SUCCESS') { %>
+                  <span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">✓ Success</span>
+                <% } else if (log.status === 'PENDING') { %>
+                  <span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">⏳ Pending</span>
+                <% } else { %>
+                  <span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">✗ Failed</span>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        <% } else { %>
+          <tr>
+            <td colspan="5" class="px-4 py-10 text-center text-slate-500">No enrollment activities yet.</td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Re-enrollment Modal -->
+<div id="reenrollModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+    <h3 class="text-2xl font-bold text-blue-600 mb-4">🔄 Re-enroll Fingerprint</h3>
+    <p id="reenrollMessage" class="text-slate-700 mb-6"></p>
+    
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 mb-6">
+      <strong>Next Step:</strong> Place student's finger on the R307 sensor when the ESP32 LCD prompts for enrollment.
+    </div>
+
+    <div id="reenrollStatus" class="text-sm text-slate-600 mb-6">
+      Waiting for ESP32 device to pick up enrollment...
+    </div>
+
+    <div class="flex gap-3">
+      <button 
+        class="flex-1 px-4 py-3 bg-slate-300 hover:bg-slate-400 text-slate-900 font-semibold rounded-lg transition"
+        onclick="closeModal('reenrollModal')"
+      >
+        Close
+      </button>
+      <button 
+        id="pollStatusBtn"
+        class="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+        onclick="pollReerollStatus()"
+      >
+        Check Status
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentClassId = null;
+let enrollmentPollInterval = null;
+
+document.getElementById('enrollClassSelect')?.addEventListener('change', async (e) => {
+  currentClassId = e.target.value;
+  if (!currentClassId) {
+    document.getElementById('classStatsCard').classList.add('hidden');
+    document.getElementById('studentTableBody').innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-500">Select a class to view students</td></tr>';
+    return;
+  }
+
+  document.getElementById('enrollClassIdHidden').value = currentClassId;
+  
+  try {
+    const res = await fetch(`/class/${currentClassId}`);
+    const html = await res.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    
+    // Extract class data from the page or fetch via API
+    const classData = JSON.parse(document.querySelector('[data-class-info]')?.textContent || '{}');
+    
+    if (classData.students) {
+      document.getElementById('classStudentCount').textContent = classData.students.length;
+      document.getElementById('classEnrolledCount').textContent = classData.students.filter(s => s.fingerprintId).length;
+      document.getElementById('classPendingCount').textContent = classData.students.filter(s => !s.fingerprintId).length;
+      document.getElementById('classStatsCard').classList.remove('hidden');
+      
+      // Populate student list
+      let rows = '';
+      classData.students.forEach(student => {
+        rows += `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-4 py-3 font-medium text-slate-900">${student.rollNumber}</td>
+            <td class="px-4 py-3 text-slate-700">${student.name}</td>
+            <td class="px-4 py-3 font-mono text-xs text-brand-600">${student.fingerprintId || 'Not assigned'}</td>
+            <td class="px-4 py-3">
+              ${student.fingerprintId 
+                ? '<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">✓ Enrolled</span>'
+                : '<span class="inline-flex rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700">⏳ Pending</span>'
+              }
+            </td>
+            <td class="px-4 py-3 space-x-2">
+              ${student.fingerprintId 
+                ? `<button class="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition font-semibold" onclick="reenrollStudent('${student._id}', '${student.name}')">Re-enroll</button>`
+                : `<button class="px-3 py-1 text-xs bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition font-semibold" onclick="reenrollStudent('${student._id}', '${student.name}')">Enroll</button>`
+              }
+            </td>
+          </tr>
+        `;
+      });
+      document.getElementById('studentTableBody').innerHTML = rows || '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-500">No students in this class</td></tr>';
+    }
+  } catch (err) {
+    console.error('Error loading class:', err);
+    document.getElementById('studentTableBody').innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-red-500">Error loading students</td></tr>';
+  }
+});
+
+document.getElementById('quickEnrollForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const classId = document.getElementById('enrollClassIdHidden').value;
+  if (!classId) {
+    alert('Please select a class first');
+    return;
+  }
+
+  const rollNumber = document.getElementById('enrollRollNumber').value;
+  const name = document.getElementById('enrollName').value;
+
+  try {
+    const res = await fetch('/students', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classId, rollNumber, name })
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      alert(`✓ Student "${name}" added!\nFingerprint ID: ${data.fingerprintId}\n\nPlace their finger on the sensor to enroll.`);
+      document.getElementById('quickEnrollForm').reset();
+      // Refresh class list
+      document.getElementById('enrollClassSelect').dispatchEvent(new Event('change'));
+    } else {
+      alert('✗ Error: ' + data.message);
+    }
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+});
+
+function reenrollStudent(studentId, studentName) {
+  document.getElementById('reenrollMessage').textContent = 
+    `Re-enrolling fingerprint for: ${studentName}`;
+  document.getElementById('reenrollModal').classList.remove('hidden');
+  
+  // Start polling
+  pollReerollStatus(studentId);
+}
+
+function pollReerollStatus(studentId) {
+  fetch(`/students/${studentId}/fingerprint/register`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        document.getElementById('reenrollStatus').innerHTML = 
+          '<span class="text-emerald-600 font-semibold">✓ Enrollment successful!</span>';
+      } else {
+        document.getElementById('reenrollStatus').textContent = data.message || 'Waiting...';
+      }
+    })
+    .catch(err => {
+      document.getElementById('reenrollStatus').textContent = 'Error: ' + err.message;
+    });
+}
+
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.add('hidden');
+  if (enrollmentPollInterval) clearInterval(enrollmentPollInterval);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeModal('reenrollModal');
+  }
+});
+</script>

@@ -14,6 +14,10 @@ async function getDailyLatestEvent(Attendance, studentId) {
   return Attendance.findOne({ student: studentId, createdAt: { $gte: todayStart() } }).sort({ createdAt: -1 });
 }
 
+async function getTodayEvents(Attendance, studentId) {
+  return Attendance.find({ student: studentId, createdAt: { $gte: todayStart() } }).sort({ createdAt: 1 });
+}
+
 async function markAttendanceByFingerprintId(Student, Attendance, fingerprintId, source = 'ESP32') {
   const student = await Student.findOne({ fingerprintId });
   if (!student) {
@@ -22,8 +26,17 @@ async function markAttendanceByFingerprintId(Student, Attendance, fingerprintId,
     throw error;
   }
 
-  const latest = await getDailyLatestEvent(Attendance, student._id);
-  const eventType = !latest || latest.eventType === 'OUT' ? 'IN' : 'OUT';
+  const events = await getTodayEvents(Attendance, student._id);
+  const hasIn = events.some((event) => event.eventType === 'IN');
+  const hasOut = events.some((event) => event.eventType === 'OUT');
+
+  if (hasIn && hasOut) {
+    const error = new Error('attendance already completed for today');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const eventType = hasIn ? 'OUT' : 'IN';
   const attendance = await Attendance.create({ student: student._id, eventType, source });
 
   return { student, attendance, eventType };
@@ -93,6 +106,12 @@ module.exports = (Student, Attendance) => {
         return res.status(404).json({ ok: false, message: 'unknown fingerprint id' });
       }
 
+      const events = await getTodayEvents(Attendance, student._id);
+      const hasIn = events.some((event) => event.eventType === 'IN');
+      if (hasIn) {
+        return res.status(409).json({ ok: false, message: 'punch in already marked for today' });
+      }
+
       const attendance = await Attendance.create({ student: student._id, eventType: 'IN', source: 'WEB' });
       return res.json({ ok: true, message: `${student.name} marked IN`, attendance });
     } catch (error) {
@@ -112,6 +131,16 @@ module.exports = (Student, Attendance) => {
       const student = await Student.findOne({ fingerprintId });
       if (!student) {
         return res.status(404).json({ ok: false, message: 'unknown fingerprint id' });
+      }
+
+      const events = await getTodayEvents(Attendance, student._id);
+      const hasIn = events.some((event) => event.eventType === 'IN');
+      const hasOut = events.some((event) => event.eventType === 'OUT');
+      if (!hasIn) {
+        return res.status(409).json({ ok: false, message: 'cannot punch out before punch in' });
+      }
+      if (hasOut) {
+        return res.status(409).json({ ok: false, message: 'punch out already marked for today' });
       }
 
       const attendance = await Attendance.create({ student: student._id, eventType: 'OUT', source: 'WEB' });

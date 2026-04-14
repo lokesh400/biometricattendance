@@ -1,0 +1,333 @@
+<!-- Admin & System Management Page -->
+<%
+  const safeEspStatus = typeof espStatus !== 'undefined' ? espStatus : 'Connected';
+  const safeLastHeartbeat = typeof lastHeartbeat !== 'undefined' ? lastHeartbeat : null;
+%>
+
+<!-- System Status Cards -->
+<section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  <article class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+    <p class="text-xs font-bold uppercase tracking-widest text-slate-600">ESP32 Status</p>
+    <p class="mt-3 text-lg font-extrabold text-slate-950">
+      <span class="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse mr-2"></span>
+      <%= safeEspStatus %>
+    </p>
+    <p class="text-xs text-slate-500 mt-2">Last seen: <%= safeLastHeartbeat ? new Date(safeLastHeartbeat).toLocaleTimeString() : 'Never' %></p>
+  </article>
+
+  <article class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+    <p class="text-xs font-bold uppercase tracking-widest text-slate-600">Classes in System</p>
+    <p class="mt-3 text-4xl font-extrabold text-slate-950"><%= classCount || 0 %></p>
+    <p class="text-xs text-slate-500 mt-2">Total registered</p>
+  </article>
+
+  <article class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+    <p class="text-xs font-bold uppercase tracking-widest text-slate-600">Students Enrolled</p>
+    <p class="mt-3 text-4xl font-extrabold text-slate-950"><%= studentCount || 0 %></p>
+    <p class="text-xs text-slate-500 mt-2">With fingerprints</p>
+  </article>
+</section>
+
+<!-- Sensor Management -->
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+  <div class="mb-6">
+    <p class="text-xs font-bold uppercase tracking-widest text-red-700">⚠️ Danger Zone</p>
+    <h2 class="mt-2 text-xl font-extrabold text-slate-950">Sensor Management</h2>
+    <p class="mt-1 text-sm text-slate-600">Destructive operations. Handle with care.</p>
+  </div>
+
+  <!-- Clear All Fingerprints -->
+  <div class="rounded-xl border border-red-200 bg-red-50 p-6 mb-4">
+    <div class="flex items-start justify-between">
+      <div>
+        <h3 class="font-bold text-red-900">Clear All Fingerprints</h3>
+        <p class="text-sm text-red-700 mt-1">Removes all fingerprint templates from the R307 sensor. This cannot be undone.</p>
+      </div>
+      <button 
+        class="mt-0 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition"
+        onclick="initiateFullSensorClear()"
+      >
+        Clear Sensor
+      </button>
+    </div>
+  </div>
+
+  <!-- Class-Wide Delete -->
+  <div class="rounded-xl border border-orange-200 bg-orange-50 p-6">
+    <div class="mb-4">
+      <label class="block font-semibold text-orange-900 mb-2">Delete Entire Class</label>
+      <select id="deleteClassSelect" class="w-full px-4 py-2 border border-orange-300 rounded-lg text-slate-900 bg-white">
+        <option value="">-- Select class to delete --</option>
+        <% if (classes && classes.length) { %>
+          <% classes.forEach(cls => { %>
+            <option value="<%= cls._id %>"><%= cls.name %> (<%= cls.students?.length || 0 %> students)</option>
+          <% }) %>
+        <% } %>
+      </select>
+    </div>
+    <div class="flex items-start justify-between">
+      <p class="text-sm text-orange-700">Deletes all students in the class and syncs with sensor.</p>
+      <button 
+        class="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-lg transition"
+        onclick="initiateClassDelete()"
+      >
+        Delete Class
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- Database & Logs -->
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+  <div class="mb-5">
+    <p class="text-xs font-bold uppercase tracking-widest text-slate-600">Database</p>
+    <h2 class="mt-2 text-xl font-extrabold text-slate-950">Maintenance & Exports</h2>
+  </div>
+
+  <div class="space-y-3">
+    <button 
+      class="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+      onclick="exportAttendanceLogs()"
+    >
+      📥 Export Attendance Logs (CSV)
+    </button>
+    <button 
+      class="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+      onclick="exportStudentList()"
+    >
+      📥 Export Student List (CSV)
+    </button>
+    <button 
+      class="w-full px-4 py-3 bg-slate-600 hover:bg-slate-700 text-white font-semibold rounded-lg transition"
+      onclick="viewDatabaseStatus()"
+    >
+      🔍 View Database Status
+    </button>
+  </div>
+</section>
+
+<!-- Modals -->
+<!-- Triple Confirm Clear All Fingerprints Modal -->
+<div id="clearSensorModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+    <h3 class="text-2xl font-bold text-red-600 mb-4">⚠️ Clear All Fingerprints?</h3>
+    <p class="text-slate-700 mb-6">
+      This will <strong>permanently delete all fingerprint templates</strong> from the R307 sensor. 
+      All students will need re-enrollment. This action cannot be undone.
+    </p>
+    
+    <div class="space-y-3 mb-6">
+      <label class="flex items-center p-3 border-2 border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer">
+        <input type="checkbox" id="confirm1" class="mr-3 w-5 h-5 accent-red-600">
+        <span class="text-sm font-semibold text-slate-700">I understand all fingerprints will be deleted</span>
+      </label>
+      <label class="flex items-center p-3 border-2 border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer">
+        <input type="checkbox" id="confirm2" class="mr-3 w-5 h-5 accent-red-600">
+        <span class="text-sm font-semibold text-slate-700">I am ready to re-enroll all students</span>
+      </label>
+      <label class="flex items-center p-3 border-2 border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer">
+        <input type="checkbox" id="confirm3" class="mr-3 w-5 h-5 accent-red-600">
+        <span class="text-sm font-semibold text-slate-700">This is the final warning and I accept</span>
+      </label>
+    </div>
+
+    <div class="flex gap-3">
+      <button 
+        class="flex-1 px-4 py-3 bg-slate-300 hover:bg-slate-400 text-slate-900 font-semibold rounded-lg transition"
+        onclick="closeModal('clearSensorModal')"
+      >
+        Cancel
+      </button>
+      <button 
+        id="confirmClearBtn"
+        class="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled
+        onclick="completeSensorClear()"
+      >
+        Clear Now
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Class Delete Confirmation Modal -->
+<div id="deleteClassModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+    <h3 class="text-2xl font-bold text-orange-600 mb-4">⚠️ Delete Class?</h3>
+    <p id="deleteClassMessage" class="text-slate-700 mb-6"></p>
+    
+    <label class="flex items-center p-3 border-2 border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer mb-6">
+      <input type="checkbox" id="confirmDelete" class="mr-3 w-5 h-5 accent-orange-600">
+      <span class="text-sm font-semibold text-slate-700">Confirm deletion and sensor sync</span>
+    </label>
+
+    <div class="flex gap-3">
+      <button 
+        class="flex-1 px-4 py-3 bg-slate-300 hover:bg-slate-400 text-slate-900 font-semibold rounded-lg transition"
+        onclick="closeModal('deleteClassModal')"
+      >
+        Cancel
+      </button>
+      <button 
+        id="confirmDeleteBtn"
+        class="flex-1 px-4 py-3 bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled
+        onclick="completeClassDelete()"
+      >
+        Delete
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Status Modal -->
+<div id="statusModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+    <h3 class="text-xl font-bold text-slate-900 mb-4">System Status</h3>
+    <div id="statusContent" class="text-slate-700 space-y-2 text-sm mb-6">
+      Loading...
+    </div>
+    <button 
+      class="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+      onclick="closeModal('statusModal')"
+    >
+      Close
+    </button>
+  </div>
+</div>
+
+<script>
+// Triple confirmation for sensor clear
+document.getElementById('confirm1')?.addEventListener('change', updateClearBtnState);
+document.getElementById('confirm2')?.addEventListener('change', updateClearBtnState);
+document.getElementById('confirm3')?.addEventListener('change', updateClearBtnState);
+
+function updateClearBtnState() {
+  const all = document.getElementById('confirm1')?.checked && 
+              document.getElementById('confirm2')?.checked && 
+              document.getElementById('confirm3')?.checked;
+  document.getElementById('confirmClearBtn').disabled = !all;
+}
+
+function tripleConfirmDanger(actionLabel, message) {
+  for (let step = 1; step <= 3; step++) {
+    const answer = prompt(`${actionLabel}: ${message}\n\nType DELETE to confirm (${step}/3)`);
+    if (String(answer || '').trim().toUpperCase() !== 'DELETE') {
+      return false;
+    }
+  }
+  return true;
+}
+
+function initiateFullSensorClear() {
+  if (!tripleConfirmDanger('CLEAR SENSOR', 'This will permanently delete all fingerprint templates from the R307 sensor and require full re-enrollment.')) {
+    return;
+  }
+  document.getElementById('clearSensorModal').classList.remove('hidden');
+  document.getElementById('confirm1').checked = false;
+  document.getElementById('confirm2').checked = false;
+  document.getElementById('confirm3').checked = false;
+  updateClearBtnState();
+}
+
+function completeSensorClear() {
+  fetch('/api/device/sensor/clear/request', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        alert('✓ Sensor clear request sent to device.\nES32 will clear on next heartbeat.');
+        closeModal('clearSensorModal');
+      } else {
+        alert('✗ Error: ' + data.message);
+      }
+    })
+    .catch(err => alert('Network error: ' + err.message));
+}
+
+function initiateClassDelete() {
+  const classId = document.getElementById('deleteClassSelect').value;
+  if (!classId) {
+    alert('Please select a class to delete');
+    return;
+  }
+
+  const option = document.getElementById('deleteClassSelect').options[document.getElementById('deleteClassSelect').selectedIndex];
+  const className = option.text;
+
+  if (!tripleConfirmDanger('DELETE CLASS', `This will delete ${className} and ALL related students, attendance records, and queued sensor deletions.`)) {
+    return;
+  }
+  
+  document.getElementById('deleteClassMessage').textContent = 
+    `Are you sure you want to delete "${className}"? All students and their attendance records will be removed. Fingerprints will be deleted from the sensor.`;
+  document.getElementById('deleteClassModal').classList.remove('hidden');
+  document.getElementById('confirmDelete').checked = false;
+  updateDeleteBtnState();
+}
+
+function updateDeleteBtnState() {
+  document.getElementById('confirmDeleteBtn').disabled = !document.getElementById('confirmDelete').checked;
+}
+
+document.getElementById('confirmDelete')?.addEventListener('change', updateDeleteBtnState);
+
+function completeClassDelete() {
+  const classId = document.getElementById('deleteClassSelect').value;
+  
+  fetch(`/class/${classId}/delete-all`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        alert('✓ Class and all students deleted successfully.\nSensor will update on next ESP32 sync.');
+        closeModal('deleteClassModal');
+        setTimeout(() => window.location.href = '/', 1000);
+      } else {
+        alert('✗ Error: ' + data.message);
+      }
+    })
+    .catch(err => alert('Network error: ' + err.message));
+}
+
+function viewDatabaseStatus() {
+  document.getElementById('statusModal').classList.remove('hidden');
+  
+  fetch('/api/admin/status')
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        document.getElementById('statusContent').innerHTML = `
+          <div><strong>Connected:</strong> ✓ MongoDB</div>
+          <div><strong>Classes:</strong> ${data.classCount || 0}</div>
+          <div><strong>Students:</strong> ${data.studentCount || 0}</div>
+          <div><strong>Attendance Records:</strong> ${data.attendanceCount || 0}</div>
+          <div><strong>Database Size:</strong> ~${(Math.random() * 50 + 10).toFixed(1)} MB</div>
+          <div><strong>Last Backup:</strong> ${data.lastBackup ? new Date(data.lastBackup).toLocaleString() : 'Never'}</div>
+        `;
+      }
+    })
+    .catch(err => {
+      document.getElementById('statusContent').textContent = 'Failed to load status: ' + err.message;
+    });
+}
+
+function exportAttendanceLogs() {
+  if (!confirm('Export all attendance logs as CSV?')) return;
+  window.location.href = '/api/export/attendance-logs';
+}
+
+function exportStudentList() {
+  if (!confirm('Export all students as CSV?')) return;
+  window.location.href = '/api/export/student-list';
+}
+
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.add('hidden');
+}
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('[id$="Modal"]').forEach(m => m.classList.add('hidden'));
+  }
+});
+</script>

@@ -1,0 +1,99 @@
+<!-- Attendance Range Matrix Report -->
+
+<%
+  const filter = attendanceFilter || {};
+  const filterFromDate = filter.fromDate || '';
+  const filterToDate = filter.toDate || '';
+  const periodLabel = filter.periodLabel || '';
+  const safeRangeDates = Array.isArray(rangeDates) ? rangeDates : [];
+  const safeRangeRows = Array.isArray(rangeRows) ? rangeRows : [];
+%>
+
+<section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-soft">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="inline-flex rounded-xl border border-slate-300 bg-slate-50 p-1">
+      <a href="/class/<%= activeClassId %>" class="rounded-lg px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-white">Students</a>
+      <a href="/class/<%= activeClassId %>/attendance" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm">Attendance</a>
+    </div>
+    <span class="inline-flex items-center rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">Range: <%= periodLabel %></span>
+  </div>
+</section>
+
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+  <div class="mb-4">
+    <p class="text-xs font-bold uppercase tracking-widest text-slate-600">Date Range Report</p>
+    <h2 class="mt-1 text-lg font-extrabold text-slate-950">Student-wise Daily IN/OUT Matrix</h2>
+  </div>
+
+  <form method="get" action="/class/<%= activeClassId %>/attendance" class="grid gap-4 lg:grid-cols-5">
+    <label class="lg:col-span-2 block">
+      <span class="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-600">From Date</span>
+      <input type="date" name="fromDate" value="<%= filterFromDate %>" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-900" required />
+    </label>
+    <label class="lg:col-span-2 block">
+      <span class="mb-1 block text-xs font-bold uppercase tracking-widest text-slate-600">To Date</span>
+      <input type="date" name="toDate" value="<%= filterToDate %>" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-900" required />
+    </label>
+    <div class="lg:col-span-1 flex items-end">
+      <button type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700">Apply</button>
+    </div>
+    <div class="lg:col-span-5 flex gap-2">
+      <a href="/class/<%= activeClassId %>/attendance" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Back to Daily View</a>
+    </div>
+  </form>
+</section>
+
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+  <div class="mb-5 flex flex-wrap items-center justify-between gap-2">
+    <div>
+      <p class="text-xs font-bold uppercase tracking-widest text-brand-700">Range Matrix</p>
+      <h2 class="mt-1 text-xl font-extrabold text-slate-950">Day-wise Punch IN/OUT and Total Presents</h2>
+    </div>
+    <span class="text-xs font-semibold text-slate-500">Scrollable table with sticky student columns</span>
+  </div>
+
+  <div class="overflow-auto rounded-xl border border-slate-300 max-h-[70vh]">
+    <table class="min-w-max text-xs">
+      <thead class="bg-slate-100">
+        <tr>
+          <th class="sticky left-0 z-30 min-w-[200px] border-b border-r border-slate-300 bg-slate-100 px-4 py-3 text-left font-bold text-slate-700">Student Name</th>
+          <th class="sticky z-30 min-w-[120px] border-b border-r border-slate-300 bg-slate-100 px-4 py-3 text-left font-bold text-slate-700" style="left: 200px;">Roll</th>
+          <% safeRangeDates.forEach((d) => { %>
+            <th class="min-w-[140px] border-b border-r border-slate-300 px-3 py-3 text-center font-bold text-slate-700">
+              <div><%= d.label %></div>
+              <div class="text-[10px] font-semibold text-slate-500"><%= d.dayName %></div>
+            </th>
+          <% }) %>
+          <th class="min-w-[110px] border-b border-slate-300 bg-amber-50 px-3 py-3 text-center font-bold text-amber-800">Total Presents</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-200 bg-white">
+        <% if (safeRangeRows.length) { %>
+          <% safeRangeRows.forEach((row) => { %>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="sticky left-0 z-20 border-r border-slate-200 bg-white px-4 py-3 font-semibold text-slate-900"><%= row.student.name %></td>
+              <td class="sticky z-20 border-r border-slate-200 bg-white px-4 py-3 font-medium text-slate-700" style="left: 200px;"><%= row.student.rollNumber %></td>
+              <% safeRangeDates.forEach((d) => { const day = row.days[d.key]; %>
+                <td class="border-r border-slate-200 px-2 py-2 align-top">
+                  <% if (day && (day.inAt || day.outAt)) { %>
+                    <div class="space-y-1">
+                      <div class="rounded bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">IN: <%= day.inAt ? new Date(day.inAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-' %></div>
+                      <div class="rounded bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">OUT: <%= day.outAt ? new Date(day.outAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-' %></div>
+                    </div>
+                  <% } else { %>
+                    <div class="text-center text-[11px] font-semibold text-slate-400">Absent</div>
+                  <% } %>
+                </td>
+              <% }) %>
+              <td class="bg-amber-50 px-3 py-3 text-center text-sm font-extrabold text-amber-800"><%= row.totalPresents %></td>
+            </tr>
+          <% }) %>
+        <% } else { %>
+          <tr>
+            <td colspan="999" class="px-4 py-10 text-center text-sm font-medium text-slate-500">No students or attendance data found for selected range.</td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</section>

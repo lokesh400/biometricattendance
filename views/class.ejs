@@ -1,0 +1,338 @@
+<div id="studentModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+    <h3 class="text-2xl font-bold text-emerald-600 mb-4">👤 Add Student</h3>
+    <form id="studentForm" class="space-y-4">
+      <input type="hidden" id="studentClassId">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">Roll Number</label>
+        <input 
+          type="text" 
+          id="studentRoll" 
+          placeholder="e.g., CS001"
+          class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+          required
+        >
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">Full Name</label>
+        <input 
+          type="text" 
+          id="studentName" 
+          placeholder="e.g., John Doe"
+          class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+          required
+        >
+      </div>
+      <div class="flex gap-3">
+        <button 
+          type="button"
+          class="flex-1 px-4 py-3 bg-slate-300 hover:bg-slate-400 text-slate-900 font-semibold rounded-lg transition"
+          onclick="closeModal('studentModal')"
+        >
+          Cancel
+        </button>
+        <button 
+          type="submit"
+          class="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition"
+        >
+          Enroll Student
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Page Header & Action -->
+<section class="mb-6">
+  <% const classTabHref = activeClassId ? `/class/${activeClassId}` : '/'; %>
+  <% const attendanceTabHref = activeClassId ? `/class/${activeClassId}/attendance` : '/'; %>
+  <div class="mb-4 inline-flex rounded-xl border border-slate-300 bg-slate-50 p-1">
+    <a href="<%= classTabHref %>" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm">Students</a>
+    <a href="<%= attendanceTabHref %>" class="rounded-lg px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-white">Attendance</a>
+  </div>
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-3xl font-extrabold text-slate-950">
+        <% if (activeClassName) { %>
+          <%= activeClassName %>
+        <% } else { %>
+          Classes
+        <% } %>
+      </h2>
+      <p class="text-slate-600 mt-1">Manage students and their fingerprint enrollment</p>
+    </div>
+    <div class="space-x-3">
+      <% if (currentUser && activeClassId) { %>
+        <button 
+          class="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-md transition"
+          onclick="openStudentModal('<%= activeClassId %>')"
+        >
+          👤 Add Student
+        </button>
+      <% } else if (!currentUser) { %>
+        <a href="/login?next=<%= encodeURIComponent('/class/' + (activeClassId || '')) %>" class="inline-flex items-center px-6 py-3 bg-slate-700 hover:bg-slate-800 text-white font-bold rounded-lg shadow-md transition">Admin Login</a>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<!-- Quick Stats Cards (if active class) -->
+<% if (activeClassId && students.length > 0) { %>
+  <section class="grid gap-4 sm:grid-cols-3 mb-6">
+    <article class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft">
+      <p class="text-xs font-bold uppercase tracking-widest text-slate-600">Total Students</p>
+      <p class="mt-3 text-4xl font-extrabold text-slate-950"><%= students.length %></p>
+    </article>
+    <article class="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-soft">
+      <p class="text-xs font-bold uppercase tracking-widest text-emerald-700">Enrolled (Fingerprint)</p>
+      <p class="mt-3 text-4xl font-extrabold text-emerald-600"><%= students.filter(s => s.fingerprintId).length %></p>
+    </article>
+    <article class="rounded-2xl border border-orange-200 bg-orange-50 p-6 shadow-soft">
+      <p class="text-xs font-bold uppercase tracking-widest text-orange-700">Pending Enrollment</p>
+      <p class="mt-3 text-4xl font-extrabold text-orange-600"><%= students.filter(s => !s.fingerprintId).length %></p>
+    </article>
+  </section>
+<% } %>
+
+<!-- Empty State -->
+<% if (!activeClassId || !students.length) { %>
+  <section class="rounded-2xl border border-slate-200 bg-white p-12 shadow-soft text-center">
+    <p class="text-slate-600 text-lg">
+      <% if (!activeClassId && classes.length === 0) { %>
+        No classes created yet.
+        <% if (currentUser) { %>
+          <a href="#" onclick="document.querySelector('[data-open-global-class-modal=\"true\"]')?.click(); return false;" class="text-brand-600 font-bold hover:underline">Create your first class</a>
+        <% } else { %>
+          <a href="/login?next=/admin" class="text-brand-600 font-bold hover:underline">Login to create your first class</a>
+        <% } %>
+        to get started.
+      <% } else if (!students.length && activeClassId) { %>
+        No students in this class yet.
+        <% if (currentUser) { %>
+          <a href="#" onclick="openStudentModal('<%= activeClassId %>'); return false;" class="text-emerald-600 font-bold hover:underline">Add the first student</a>
+        <% } else { %>
+          <a href="/login?next=<%= encodeURIComponent('/class/' + activeClassId) %>" class="text-emerald-600 font-bold hover:underline">Login to add the first student</a>
+        <% } %>
+        to begin enrollment.
+      <% } %>
+    </p>
+  </section>
+<% } %>
+
+<!-- Students List Table -->
+<% if (activeClassId && students.length > 0) { %>
+  <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-soft mb-6">
+    <div class="mb-5">
+      <p class="text-xs font-bold uppercase tracking-widest text-slate-600">Roster</p>
+      <h3 class="mt-2 text-lg font-extrabold text-slate-950">Students in <%= activeClassName %></h3>
+    </div>
+
+    <div class="overflow-x-auto rounded-xl border border-slate-300">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gradient-to-r from-slate-50 to-slate-100">
+          <tr>
+            <th class="px-4 py-3 text-left font-semibold text-slate-700">Roll</th>
+            <th class="px-4 py-3 text-left font-semibold text-slate-700">Name</th>
+            <th class="px-4 py-3 text-left font-semibold text-slate-700">Fingerprint ID</th>
+            <th class="px-4 py-3 text-left font-semibold text-slate-700">Status</th>
+            <th class="px-4 py-3 text-left font-semibold text-slate-700">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200">
+          <% students.forEach(student => { %>
+            <tr class="hover:bg-slate-50 transition">
+              <td class="px-4 py-3 font-medium text-slate-900"><%= student.rollNumber %></td>
+              <td class="px-4 py-3 text-slate-700"><%= student.name %></td>
+              <td class="px-4 py-3 font-mono text-xs text-brand-600">
+                <% if (student.fingerprintId) { %>
+                  ID <%= student.fingerprintId %>
+                <% } else { %>
+                  <span class="text-slate-500">Not assigned</span>
+                <% } %>
+              </td>
+              <td class="px-4 py-3">
+                <% if (student.fingerprintId) { %>
+                  <span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">✓ Enrolled</span>
+                <% } else { %>
+                  <span class="inline-flex rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700">⏳ Pending</span>
+                <% } %>
+              </td>
+              <td class="px-4 py-3 space-x-2">
+                <% if (student.fingerprintId) { %>
+                  <button 
+                    class="px-3 py-1 text-xs font-semibold bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                    onclick="reenroll('<%= student._id %>', '<%= student.name %>')"
+                  >
+                    🔄 Re-enroll
+                  </button>
+                <% } else { %>
+                  <button 
+                    class="px-3 py-1 text-xs font-semibold bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition"
+                    onclick="reenroll('<%= student._id %>', '<%= student.name %>')"
+                  >
+                    👆 Enroll
+                  </button>
+                <% } %>
+                <button 
+                  class="px-3 py-1 text-xs font-semibold bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
+                  onclick="deleteStudent('<%= student._id %>', '<%= student.name %>')"
+                >
+                  🗑 Delete
+                </button>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <% if (activeClassId) { %>
+    <section class="rounded-2xl border border-red-200 bg-red-50 p-6 shadow-soft">
+      <button 
+        class="w-full px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded transition"
+        onclick="deleteWholeClass('<%= activeClassId %>', '<%= activeClassName %>')"
+      >
+        ⚠️ Delete Entire Class (<%= students.length %> students)
+      </button>
+    </section>
+  <% } %>
+<% } %>
+
+<script>
+function tripleConfirm(message, title) {
+  const label = title || 'DELETE';
+  for (let step = 1; step <= 3; step++) {
+    const answer = prompt(`${label}: ${message}\n\nType DELETE to confirm (${step}/3)`);
+    if (String(answer || '').trim().toUpperCase() !== 'DELETE') {
+      return false;
+    }
+  }
+  return true;
+}
+
+document.getElementById('classForm')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('className').value.trim();
+  if (!name) return;
+  
+  try {
+    const res = await fetch('/api/class', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      alert(`✓ Class "${name}" created!`);
+      closeModal('classModal');
+      window.location.reload();
+    } else {
+      alert('✗ Error: ' + data.message);
+    }
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+});
+
+document.getElementById('studentForm')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const classId = document.getElementById('studentClassId').value;
+  const rollNumber = document.getElementById('studentRoll').value.trim();
+  const name = document.getElementById('studentName').value.trim();
+  
+  if (!classId || !rollNumber || !name) return;
+  
+  try {
+    const res = await fetch('/students', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classId, rollNumber, name })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      alert(`✓ Student "${name}" added with ID ${data.fingerprintId}.\n\nPlace their finger on the sensor to enroll.`);
+      closeModal('studentModal');
+      window.location.reload();
+    } else {
+      alert('✗ Error: ' + data.message);
+    }
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+});
+
+function openStudentModal(classId) {
+  document.getElementById('studentClassId').value = classId;
+  document.getElementById('studentModal').classList.remove('hidden');
+  document.getElementById('studentRoll').focus();
+}
+
+function reenroll(studentId, studentName) {
+  if (!confirm(`Re-enroll ${studentName}? They'll need to place their finger on the sensor.`)) return;
+  
+  fetch(`/students/${studentId}/fingerprint/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ classId: '<%= activeClassId %>' })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        alert('✓ Enrollment started. Student should place finger on sensor.');
+      } else {
+        alert('✗ Error: ' + data.message);
+      }
+    })
+    .catch(err => alert('Network error: ' + err.message));
+}
+
+function deleteStudent(studentId, studentName) {
+  if (!tripleConfirm(`Delete ${studentName}? This will remove the student, attendance records, and queued sensor template.`, 'DELETE STUDENT')) return;
+  
+  fetch(`/students/${studentId}/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ classId: '<%= activeClassId %>' })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        alert('✓ Student deleted and sensor template removed.');
+        window.location.reload();
+      } else {
+        alert('✗ Error: ' + data.message);
+      }
+    })
+    .catch(err => alert('Network error: ' + err.message));
+}
+
+function deleteWholeClass(classId, className) {
+  if (!tripleConfirm(`Delete class "${className}" and ALL related data? This removes students, attendance records, and queues sensor template deletions.`, 'DELETE CLASS')) return;
+  
+  fetch(`/class/${classId}/delete-all`, {
+    method: 'POST'
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        alert(`✓ Class deleted (${data.deletedStudents} students removed, ${data.queuedSensorDeletes} sensor templates queued for deletion).`);
+        window.location.href = '/';
+      } else {
+        alert('✗ Error: ' + data.message);
+      }
+    })
+    .catch(err => alert('Network error: ' + err.message));
+}
+
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.add('hidden');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('[id$="Modal"]').forEach(m => m.classList.add('hidden'));
+  }
+});
+</script>

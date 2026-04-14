@@ -5,6 +5,17 @@ const express = require('express');
 const router = express.Router();
 
 module.exports = (ClassModel, Student) => {
+  function isAdminAuthenticated(req) {
+    return typeof req.isAuthenticated === 'function' && req.isAuthenticated();
+  }
+
+  function requireAdmin(req, res, next) {
+    if (isAdminAuthenticated(req)) {
+      return next();
+    }
+    return res.status(401).json({ ok: false, message: 'Admin login required' });
+  }
+
   // GET /api/classes - Get all classes
   router.get('/api/classes', async (req, res) => {
     try {
@@ -17,22 +28,27 @@ module.exports = (ClassModel, Student) => {
   });
 
   // POST /api/classes - Create a class
-  router.post('/api/classes', async (req, res) => {
+  router.post('/api/classes', requireAdmin, async (req, res) => {
     try {
       const name = String(req.body.name || '').trim();
-      const code = String(req.body.code || '').trim();
-      const description = String(req.body.description || '').trim();
+      const sessionYear = String(req.body.sessionYear || '').trim();
 
-      if (!name || !code) {
-        return res.status(400).json({ ok: false, message: 'Class name and code are required' });
+      if (!name || !sessionYear) {
+        return res.status(400).json({ ok: false, message: 'Class name and session year are required' });
       }
 
-      const existing = await ClassModel.findOne({ code: code.toUpperCase() }).select('_id').lean();
+      const codeBase = `${name}-${sessionYear}`
+        .replace(/[^a-zA-Z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .toUpperCase();
+      const code = codeBase || `CLASS-${Date.now()}`;
+
+      const existing = await ClassModel.findOne({ code }).select('_id').lean();
       if (existing) {
-        return res.status(409).json({ ok: false, message: 'Class code already exists' });
+        return res.status(409).json({ ok: false, message: 'A class with this name and session year already exists' });
       }
 
-      const created = await ClassModel.create({ name, code, description });
+      const created = await ClassModel.create({ name, sessionYear, code });
       return res.status(201).json({ ok: true, class: created });
     } catch (error) {
       console.error('POST /api/classes error:', error);
@@ -48,6 +64,27 @@ module.exports = (ClassModel, Student) => {
     } catch (error) {
       console.error('GET /api/students error:', error);
       res.status(500).json({ ok: false, message: 'unable to fetch students' });
+    }
+  });
+
+  // GET /api/fingerprint-backups - Get enrolled fingerprint templates stored in MongoDB
+  router.get('/api/fingerprint-backups', async (req, res) => {
+    try {
+      const students = await Student.find({
+        fingerprintTemplateHex: { $exists: true, $ne: '' },
+      })
+        .sort({ createdAt: -1 })
+        .populate('classId')
+        .select('rollNumber name fingerprintId fingerprintTemplateHex fingerprintTemplateFormat classId createdAt');
+
+      res.json({
+        ok: true,
+        count: students.length,
+        students,
+      });
+    } catch (error) {
+      console.error('GET /api/fingerprint-backups error:', error);
+      res.status(500).json({ ok: false, message: 'unable to fetch fingerprint backups' });
     }
   });
 
