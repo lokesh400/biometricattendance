@@ -42,6 +42,77 @@
   </div>
 </div>
 
+<div id="bulkUploadModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4">
+    <h3 class="text-2xl font-bold text-brand-600 mb-4">📄 Bulk Upload Students</h3>
+    <p class="mb-4 text-sm text-slate-600">Upload an .xlsx file with <strong>Roll Number</strong> and <strong>Name</strong> in the first sheet header row.</p>
+    <form id="bulkUploadForm" class="space-y-4">
+      <input type="hidden" id="bulkUploadClassId">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">Excel Sheet (.xlsx)</label>
+        <input
+          type="file"
+          id="bulkUploadFile"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none bg-white"
+          required
+        >
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        <p class="font-semibold text-slate-900 mb-1">Expected columns</p>
+        <p>Use headers like Roll Number, Roll No, Roll, or Name / Full Name / Student Name.</p>
+        <p class="mt-2">Duplicate roll numbers in the sheet or existing class records will be skipped.</p>
+      </div>
+      <div class="rounded-xl border border-brand-200 bg-brand-50 p-4">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <p class="text-sm font-bold text-brand-700">Demo sheet preview</p>
+          <span class="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 border border-brand-200">Reference only</span>
+        </div>
+        <div class="overflow-hidden rounded-lg border border-brand-200 bg-white shadow-sm">
+          <table class="min-w-full text-left text-xs">
+            <thead class="bg-brand-600 text-white">
+              <tr>
+                <th class="px-3 py-2 font-semibold">Roll Number</th>
+                <th class="px-3 py-2 font-semibold">Name</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr>
+                <td class="px-3 py-2 font-mono text-slate-700">CS001</td>
+                <td class="px-3 py-2 text-slate-700">Asha Kumar</td>
+              </tr>
+              <tr>
+                <td class="px-3 py-2 font-mono text-slate-700">CS002</td>
+                <td class="px-3 py-2 text-slate-700">Rahul Singh</td>
+              </tr>
+              <tr>
+                <td class="px-3 py-2 font-mono text-slate-700">CS003</td>
+                <td class="px-3 py-2 text-slate-700">Priya Patel</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div id="bulkUploadStatus" class="text-sm font-medium text-slate-600"></div>
+      <div class="flex gap-3">
+        <button
+          type="button"
+          class="flex-1 px-4 py-3 bg-slate-300 hover:bg-slate-400 text-slate-900 font-semibold rounded-lg transition"
+          onclick="closeModal('bulkUploadModal')"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="flex-1 px-4 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-lg transition"
+        >
+          Upload Students
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Page Header & Action -->
 <section class="mb-6">
   <% const classTabHref = activeClassId ? `/class/${activeClassId}` : '/'; %>
@@ -62,13 +133,19 @@
       </h2>
       <p class="text-slate-600 mt-1">Manage students and their fingerprint enrollment</p>
     </div>
-    <div class="space-x-3">
+    <div class="flex flex-wrap gap-3">
       <% if (currentUser && activeClassId) { %>
         <button 
           class="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-md transition"
           onclick="openStudentModal('<%= activeClassId %>')"
         >
           👤 Add Student
+        </button>
+        <button
+          class="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-lg shadow-md transition"
+          onclick="openBulkUploadModal('<%= activeClassId %>')"
+        >
+          📄 Bulk Upload
         </button>
       <% } else if (!currentUser) { %>
         <a href="/login?next=<%= encodeURIComponent('/class/' + (activeClassId || '')) %>" class="inline-flex items-center px-6 py-3 bg-slate-700 hover:bg-slate-800 text-white font-bold rounded-lg shadow-md transition">Admin Login</a>
@@ -86,11 +163,11 @@
     </article>
     <article class="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-soft">
       <p class="text-xs font-bold uppercase tracking-widest text-emerald-700">Enrolled (Fingerprint)</p>
-      <p class="mt-3 text-4xl font-extrabold text-emerald-600"><%= students.filter(s => s.fingerprintId).length %></p>
+      <p class="mt-3 text-4xl font-extrabold text-emerald-600"><%= students.filter(s => s.fingerprintTemplateHex && String(s.fingerprintTemplateHex).trim()).length %></p>
     </article>
     <article class="rounded-2xl border border-orange-200 bg-orange-50 p-6 shadow-soft">
       <p class="text-xs font-bold uppercase tracking-widest text-orange-700">Pending Enrollment</p>
-      <p class="mt-3 text-4xl font-extrabold text-orange-600"><%= students.filter(s => !s.fingerprintId).length %></p>
+      <p class="mt-3 text-4xl font-extrabold text-orange-600"><%= students.filter(s => !(s.fingerprintTemplateHex && String(s.fingerprintTemplateHex).trim())).length %></p>
     </article>
   </section>
 <% } %>
@@ -152,14 +229,14 @@
                 <% } %>
               </td>
               <td class="px-4 py-3">
-                <% if (student.fingerprintId) { %>
+                <% if (student.fingerprintTemplateHex && String(student.fingerprintTemplateHex).trim()) { %>
                   <span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">✓ Enrolled</span>
                 <% } else { %>
                   <span class="inline-flex rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700">⏳ Pending</span>
                 <% } %>
               </td>
               <td class="px-4 py-3 space-x-2">
-                <% if (student.fingerprintId) { %>
+                <% if (student.fingerprintTemplateHex && String(student.fingerprintTemplateHex).trim()) { %>
                   <button 
                     class="px-3 py-1 text-xs font-semibold bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
                     onclick="reenroll('<%= student._id %>', '<%= student.name %>')"
@@ -256,6 +333,37 @@ function openModal(id) {
 
 function closeModal(id) {
   document.getElementById(id)?.classList.add('hidden');
+}
+
+function openBulkUploadModal(classId) {
+  const classField = document.getElementById('bulkUploadClassId');
+  const fileInput = document.getElementById('bulkUploadFile');
+  const statusEl = document.getElementById('bulkUploadStatus');
+
+  if (classField) {
+    classField.value = classId;
+  }
+  if (fileInput) {
+    fileInput.value = '';
+  }
+  if (statusEl) {
+    statusEl.textContent = 'Select an Excel file to import students into this class.';
+  }
+
+  openModal('bulkUploadModal');
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+
+  return btoa(binary);
 }
 
 function showNotice(title, message) {
@@ -452,6 +560,75 @@ document.getElementById('studentForm')?.addEventListener('submit', async e => {
     }
   } catch (err) {
     await showNotice('Network Error', err.message);
+  }
+});
+
+document.getElementById('bulkUploadForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const classId = document.getElementById('bulkUploadClassId').value;
+  const fileInput = document.getElementById('bulkUploadFile');
+  const statusEl = document.getElementById('bulkUploadStatus');
+  const file = fileInput?.files?.[0];
+
+  if (!classId) {
+    await showNotice('Missing Class', 'Please open the upload form from a class page first.');
+    return;
+  }
+
+  if (!file) {
+    await showNotice('Missing File', 'Please choose an Excel file first.');
+    return;
+  }
+
+  if (!/\.xlsx$/i.test(file.name)) {
+    await showNotice('Invalid File Type', 'Please upload a .xlsx Excel file.');
+    return;
+  }
+
+  try {
+    if (statusEl) {
+      statusEl.textContent = 'Reading workbook and importing students...';
+    }
+
+    const buffer = await file.arrayBuffer();
+    const workbookBase64 = arrayBufferToBase64(buffer);
+
+    const { data } = await fetchJson(`/class/${classId}/students/bulk-upload`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        classId,
+        fileName: file.name,
+        workbookBase64,
+      }),
+    });
+
+    if (!data.ok) {
+      if (statusEl) {
+        statusEl.textContent = data.message || 'Upload failed.';
+      }
+      await showNotice('Bulk Upload Failed', data.message || 'Unable to import students.');
+      return;
+    }
+
+    const skippedCount = Number(data.skippedCount || 0);
+    const skippedSummary = skippedCount ? ` Skipped ${skippedCount} row(s).` : '';
+
+    await showNotice(
+      'Bulk Upload Complete',
+      `${data.message || 'Students imported successfully.'} Created ${data.createdCount || 0} student(s).${skippedSummary}`,
+    );
+
+    closeModal('bulkUploadModal');
+    window.location.reload();
+  } catch (err) {
+    if (statusEl) {
+      statusEl.textContent = err.message || 'Unexpected upload error.';
+    }
+    await showNotice('Network Error', err.message || 'Unexpected upload error.');
   }
 });
 

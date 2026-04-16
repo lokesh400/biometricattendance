@@ -46,6 +46,49 @@ function toDateInputValue(date) {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeImportHeader(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function cellToText(cell) {
+  if (!cell) {
+    return '';
+  }
+
+  if (cell.text != null && String(cell.text).trim() !== '') {
+    return String(cell.text).trim();
+  }
+
+  if (cell.value == null) {
+    return '';
+  }
+
+  if (typeof cell.value === 'object') {
+    if (cell.value.text != null) {
+      return String(cell.value.text).trim();
+    }
+
+    if (cell.value.richText && Array.isArray(cell.value.richText)) {
+      return cell.value.richText.map((part) => String(part.text || '')).join('').trim();
+    }
+  }
+
+  return String(cell.value).trim();
+}
+
+function readBase64WorkbookBuffer(base64Value) {
+  const raw = String(base64Value || '').trim();
+  if (!raw) {
+    return null;
+  }
+
+  const cleaned = raw.includes('base64,') ? raw.split('base64,').pop() : raw;
+  return Buffer.from(cleaned, 'base64');
+}
+
 async function buildRangeAttendanceMatrix(Student, Attendance, classObjectId, filterStart, filterEnd) {
   const students = await Student.find({ classId: classObjectId }).sort({ createdAt: -1 }).lean();
   const studentIds = students.map((s) => s._id);
@@ -671,6 +714,153 @@ module.exports = (
     } catch (error) {
       console.error('GET /class/:classId/attendance/range/export error:', error);
       return res.status(500).json({ ok: false, message: 'Unable to export attendance range Excel.' });
+    }
+  });
+
+  // POST /class/:classId/students/bulk-upload - Import students from an Excel sheet
+  router.post('/class/:classId/students/bulk-upload', requireAdmin, async (req, res) => {
+    try {
+      const classId = String(req.params.classId || req.body.classId || '').trim();
+      const wantsJson = req.accepts(['json', 'html']) === 'json';
+
+      if (!mongoose.Types.ObjectId.isValid(classId)) {
+        return res.status(400).json({ ok: false, message: 'Invalid class selected.' });
+      }
+
+      const classObjectId = new mongoose.Types.ObjectId(classId);
+      const targetClass = await ClassModel.findById(classObjectId).select('_id name').lean();
+      if (!targetClass) {
+        return res.status(404).json({ ok: false, message: 'Selected class was not found.' });
+      }
+
+      const workbookBuffer = readBase64WorkbookBuffer(req.body.workbookBase64 || req.body.fileBase64 || req.body.data);
+      if (!workbookBuffer || !workbookBuffer.length) {
+        return res.status(400).json({ ok: false, message: 'No Excel file data was received.' });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(workbookBuffer);
+
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) {
+        return res.status(400).json({ ok: false, message: 'The uploaded workbook does not contain any sheets.' });
+      }
+
+      const headerRow = worksheet.getRow(1);
+      const headerMap = new Map();
+      headerRow.eachCell((cell, colNumber) => {
+        const header = normalizeImportHeader(cellToText(cell));
+        if (header && !headerMap.has(header)) {
+          headerMap.set(header, colNumber);
+        }
+      });
+
+      const rollColumn =
+        headerMap.get('rollnumber') ||
+        headerMap.get('rollno') ||
+        headerMap.get('roll') ||
+        headerMap.get('admissionno') ||
+        headerMap.get('enrollmentno');
+      const nameColumn =
+        headerMap.get('name') ||
+        headerMap.get('fullname') ||
+        headerMap.get('studentname');
+
+      if (!rollColumn || !nameColumn) {
+        return res.status(400).json({
+          ok: false,
+          message: 'The first sheet must include Roll Number and Name columns in the header row.',
+        });
+      }
+
+      const rows = [];
+      const seenRollNumbers = new Set();
+      const skippedRows = [];
+
+      for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+        const row = worksheet.getRow(rowNumber);
+        const rollNumber = cellToText(row.getCell(rollColumn));
+        const name = cellToText(row.getCell(nameColumn));
+
+        if (!rollNumber && !name) {
+          continue;
+        }
+
+        if (!rollNumber || !name) {
+          skippedRows.push({ rowNumber, rollNumber, name, reason: 'Roll number and name are required.' });
+          continue;
+        }
+
+        const normalizedRoll = rollNumber.trim();
+        if (seenRollNumbers.has(normalizedRoll)) {
+          skippedRows.push({ rowNumber, rollNumber: normalizedRoll, name, reason: 'Duplicate roll number in the Excel sheet.' });
+          continue;
+        }
+
+        seenRollNumbers.add(normalizedRoll);
+        rows.push({ rowNumber, rollNumber: normalizedRoll, name: name.trim() });
+      }
+
+      if (!rows.length) {
+        return res.status(400).json({ ok: false, message: 'No valid student rows were found in the Excel sheet.' });
+      }
+
+      const rollNumbers = rows.map((row) => row.rollNumber);
+      const existingStudents = await Student.find({ rollNumber: { $in: rollNumbers } }).select('rollNumber').lean();
+      const existingRollNumbers = new Set(existingStudents.map((student) => String(student.rollNumber || '').trim()));
+
+      const latestStudent = await Student.findOne().sort({ fingerprintId: -1 }).select('fingerprintId').lean();
+      let nextFingerprintId = Number(latestStudent?.fingerprintId || 0) + 1;
+
+      const createdStudents = [];
+      for (const row of rows) {
+        if (existingRollNumbers.has(row.rollNumber)) {
+          skippedRows.push({ rowNumber: row.rowNumber, rollNumber: row.rollNumber, name: row.name, reason: 'Roll number already exists.' });
+          continue;
+        }
+
+        try {
+          const student = await Student.create({
+            classId: classObjectId,
+            rollNumber: row.rollNumber,
+            name: row.name,
+            fingerprintId: nextFingerprintId,
+            fingerprintTemplateHex: '',
+            fingerprintTemplateFormat: '',
+          });
+
+          createdStudents.push(student);
+          nextFingerprintId += 1;
+        } catch (error) {
+          const message = error && error.code === 11000 ? 'Roll number or fingerprint ID already exists.' : 'Unable to import this row.';
+          skippedRows.push({ rowNumber: row.rowNumber, rollNumber: row.rollNumber, name: row.name, reason: message });
+        }
+      }
+
+      const studentCount = await Student.countDocuments({ classId: classObjectId });
+      await ClassModel.findByIdAndUpdate(classObjectId, { $set: { studentCount } }).exec();
+
+      const createdCount = createdStudents.length;
+      const skippedCount = skippedRows.length;
+      const message = `Imported ${createdCount} student${createdCount === 1 ? '' : 's'} into ${targetClass.name}.`;
+
+      return res.json({
+        ok: true,
+        message,
+        classId,
+        className: targetClass.name,
+        createdCount,
+        skippedCount,
+        skippedRows: skippedRows.slice(0, 10),
+        studentCount,
+      });
+    } catch (error) {
+      console.error('POST /class/:classId/students/bulk-upload error:', error);
+      const message = 'Unable to import students from Excel.';
+      if (req.accepts(['json', 'html']) === 'json') {
+        return res.status(500).json({ ok: false, message });
+      }
+      return res.redirect('/');
     }
   });
 

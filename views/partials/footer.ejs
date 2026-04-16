@@ -1,2 +1,43 @@
-  </body>
+<%
+  const safeClasses = Array.isArray(classes) ? classes : [];
+  const hasSidebar = safeClasses.length > 0 || typeof activeClassId !== 'undefined' || typeof page !== 'undefined';
+  const safeClassPath = typeof classPath !== 'undefined'
+    ? String(classPath)
+    : (safeClasses[0] && safeClasses[0]._id ? `/class/${safeClasses[0]._id}` : '/');
+%>
+
+<footer class="mt-16 border-t border-slate-300 bg-white/70 backdrop-blur py-8 <%= hasSidebar ? 'xl:ml-72' : '' %>">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 gap-8 md:grid-cols-3 mb-8">
+      <div>
+        <div class="mb-4 flex items-center gap-2">
+          <div class="rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-bold text-white">BAS</div>
+          <span class="font-bold text-slate-950">Biometric Attendance</span>
+        </div>
+        <p class="text-sm text-slate-600">Modern fingerprint-based attendance system.</p>
+      </div>
+      <div>
+        <h4 class="mb-3 font-bold text-slate-950">Quick Links</h4>
+        <ul class="space-y-2 text-sm">
+          <li><a href="<%= safeClassPath %>" class="text-slate-600 hover:text-slate-950">Dashboard</a></li>
+          <li><a href="/enrollment" class="text-slate-600 hover:text-slate-950">Enrollment</a></li>
+          <li><a href="/admin" class="text-slate-600 hover:text-slate-950">Admin</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="mb-3 font-bold text-slate-950">System Status</h4>
+        <p class="mb-2 text-sm text-slate-600">
+          <span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">● System Running</span>
+        </p>
+        <p class="text-xs text-slate-500"><%= new Date().toLocaleString() %></p>
+      </div>
+    </div>
+    <div class="flex flex-col items-center justify-between gap-3 border-t border-slate-300 pt-6 sm:flex-row">
+      <p class="text-sm text-slate-600">© 2026 Biometric Attendance System. All rights reserved.</p>
+      <p class="text-xs text-slate-500">Built with ❤️ by Lokesh Choudhary. </p>
+    </div>
+  </div>
+</footer>
+
+</body>
 </html>
