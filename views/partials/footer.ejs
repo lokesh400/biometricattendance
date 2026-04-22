@@ -1,5 +1,5 @@
 <%
-  const safeClasses = Array.isArray(classes) ? classes : [];
+  const safeClasses = typeof classes !== 'undefined' && Array.isArray(classes) ? classes : [];
   const hasSidebar = safeClasses.length > 0 || typeof activeClassId !== 'undefined' || typeof page !== 'undefined';
   const safeClassPath = typeof classPath !== 'undefined'
     ? String(classPath)

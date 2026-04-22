@@ -10,15 +10,15 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 const char *ssid = "Lokesh";
 const char *password = "";
 
-const char *attendanceUrl = "http://10.80.157.198:3000/api/attendance/mark";
-const char *enrollmentNextUrl = "http://10.80.157.198:3000/api/device/enrollment/next";
-const char *enrollmentResultUrl = "http://10.80.157.198:3000/api/device/enrollment/result";
-const char *migrationNextUrl = "http://10.80.157.198:3000/api/device/migration/next";
-const char *migrationResultUrl = "http://10.80.157.198:3000/api/device/migration/result";
-const char *deleteNextUrl = "http://10.80.157.198:3000/api/device/delete/next";
-const char *deleteResultUrl = "http://10.80.157.198:3000/api/device/delete/result";
-const char *sensorClearNextUrl = "http://10.80.157.198:3000/api/device/sensor/clear/next";
-const char *sensorClearResultUrl = "http://10.80.157.198:3000/api/device/sensor/clear/result";
+const char *attendanceUrl = "http://10.185.57.198:3000/api/attendance/mark";
+const char *enrollmentNextUrl = "http://10.185.57.198:3000/api/device/enrollment/next";
+const char *enrollmentResultUrl = "http://10.185.57.198:3000/api/device/enrollment/result";
+const char *migrationNextUrl = "http://10.185.57.198:3000/api/device/migration/next";
+const char *migrationResultUrl = "http://10.185.57.198:3000/api/device/migration/result";
+const char *deleteNextUrl = "http://10.185.57.198:3000/api/device/delete/next";
+const char *deleteResultUrl = "http://10.185.57.198:3000/api/device/delete/result";
+const char *sensorClearNextUrl = "http://10.185.57.198:3000/api/device/sensor/clear/next";
+const char *sensorClearResultUrl = "http://10.185.57.198:3000/api/device/sensor/clear/result";
 
 #define TOUCH_PIN 4
 #define BUZZER_PIN 5
@@ -36,9 +36,15 @@ const unsigned long sensorClearPollIntervalMs = 2500;
 const unsigned long fingerWaitTimeoutMs = 12000;
 const uint16_t httpPollTimeoutMs = 700;
 const uint16_t httpPostTimeoutMs = 1200;
+const unsigned long wifiReconnectIntervalMs = 10000;
+const unsigned long sensorHealthCheckIntervalMs = 15000;
+const int sensorErrorRecoverThreshold = 6;
 
 unsigned long lastDiagnosticPrintMs = 0;
 const unsigned long diagnosticIntervalMs = 5000;
+unsigned long lastWifiReconnectAttemptMs = 0;
+unsigned long lastSensorHealthCheckMs = 0;
+int sensorConsecutiveErrors = 0;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
@@ -106,6 +112,9 @@ String parseErrorMessage(const String &message, bool transportOk)
         if (msgLower.indexOf("punch in already marked") >= 0) {
             return "IN marked today";
         }
+        if (msgLower.indexOf("already punched in") >= 0) {
+            return "Already IN";
+        }
         if (msgLower.indexOf("cannot punch out before punch in") >= 0) {
             return "No IN yet";
         }
@@ -152,6 +161,9 @@ void setup()
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW); // Buzzer off initially
 
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
     WiFi.begin(ssid, password);
     Serial.print("Connecting WiFi");
     lcdShow("WiFi", "Connecting...");
@@ -182,6 +194,9 @@ void setup()
 
 void loop()
 {
+    ensureWiFiConnected();
+    checkFingerprintHealth();
+
     // Keep scan path first so attendance stays responsive even during network hiccups.
     captureAttendance();
     printDiagnosticsIfNeeded();
@@ -190,6 +205,85 @@ void loop()
     checkDeleteTask();
     checkSensorClearTask();
     delay(25);
+}
+
+void ensureWiFiConnected()
+{
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        return;
+    }
+
+    unsigned long now = millis();
+    if (now - lastWifiReconnectAttemptMs < wifiReconnectIntervalMs)
+    {
+        return;
+    }
+    lastWifiReconnectAttemptMs = now;
+
+    Serial.println("[WIFI] Disconnected. Attempting reconnect...");
+    WiFi.reconnect();
+}
+
+void recoverFingerprintSensor(const char *reason)
+{
+    Serial.print("[SENSOR] Recovering sensor. Reason: ");
+    Serial.println(reason);
+    lcdShow("Sensor recover", "Please wait");
+
+    mySerial.end();
+    delay(120);
+    mySerial.begin(57600, SERIAL_8N1, 16, 17);
+    finger.begin(57600);
+
+    if (finger.verifyPassword())
+    {
+        sensorConsecutiveErrors = 0;
+        Serial.println("[SENSOR] Recovery success.");
+        showReady();
+        return;
+    }
+
+    Serial.println("[SENSOR] Recovery failed.");
+    lcdShow("Sensor error", "Check wiring");
+}
+
+void noteSensorError(const char *context, int code)
+{
+    sensorConsecutiveErrors++;
+    Serial.print("[SENSOR] ");
+    Serial.print(context);
+    Serial.print(" error code: ");
+    Serial.print(code);
+    Serial.print(" | streak: ");
+    Serial.println(sensorConsecutiveErrors);
+
+    if (sensorConsecutiveErrors >= sensorErrorRecoverThreshold)
+    {
+        recoverFingerprintSensor("repeated sensor errors");
+    }
+}
+
+void clearSensorErrorStreak()
+{
+    sensorConsecutiveErrors = 0;
+}
+
+void checkFingerprintHealth()
+{
+    unsigned long now = millis();
+    if (now - lastSensorHealthCheckMs < sensorHealthCheckIntervalMs)
+    {
+        return;
+    }
+    lastSensorHealthCheckMs = now;
+
+    if (finger.verifyPassword())
+    {
+        return;
+    }
+
+    noteSensorError("verifyPassword", -1);
 }
 
 void checkSensorClearTask()
@@ -289,6 +383,8 @@ void printDiagnosticsIfNeeded()
     Serial.print(touchState);
     Serial.print(" | WiFi: ");
     Serial.print(wifiStatus == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED");
+    Serial.print(" | SensorErrStreak: ");
+    Serial.print(sensorConsecutiveErrors);
     Serial.println();
 }
 
@@ -315,8 +411,14 @@ void captureAttendance()
 
     if (imageResult != FINGERPRINT_OK)
     {
+        if (imageResult != FINGERPRINT_NOFINGER)
+        {
+            noteSensorError("getImage", imageResult);
+        }
         return; // No finger detected
     }
+
+    clearSensorErrorStreak();
 
     unsigned long now = millis();
     if (now - lastScanMs < scanDebounceMs)
@@ -335,6 +437,7 @@ void captureAttendance()
     {
         Serial.print("[ERROR] image2Tz failed with code: ");
         Serial.println(tz);
+        noteSensorError("image2Tz", tz);
         beep(2); // Dual beep on failure
         Serial.println("==============================================\n");
         return;
@@ -345,6 +448,7 @@ void captureAttendance()
 
     if (search == FINGERPRINT_OK)
     {
+        clearSensorErrorStreak();
         int id = finger.fingerID;
         Serial.print("✓ Fingerprint matched! ID: ");
         Serial.println(id);
@@ -530,6 +634,7 @@ int attemptFingerprintCapture()
             }
             else
             {
+                noteSensorError("fingerSearch", search);
                 Serial.print("[ERROR] Fingerprint not in database. Code: ");
                 Serial.println(search);
                 return -1;
@@ -549,6 +654,7 @@ int attemptFingerprintCapture()
         {
             Serial.print("[ERROR] Sensor communication error code: ");
             Serial.println(imageResult);
+            noteSensorError("attemptFingerprintCapture/getImage", imageResult);
             return -1;
         }
     }
@@ -766,6 +872,7 @@ bool captureImageAndConvert(uint8_t slot)
         int p = finger.getImage();
         if (p == FINGERPRINT_OK)
         {
+            clearSensorErrorStreak();
             int c = finger.image2Tz(slot);
             if (c != FINGERPRINT_OK)
             {
@@ -773,6 +880,7 @@ bool captureImageAndConvert(uint8_t slot)
                 Serial.print(slot);
                 Serial.print(") code: ");
                 Serial.println(c);
+                noteSensorError("captureImageAndConvert/image2Tz", c);
                 return false;
             }
             return true;
@@ -782,6 +890,7 @@ bool captureImageAndConvert(uint8_t slot)
         {
             Serial.print("getImage error code: ");
             Serial.println(p);
+            noteSensorError("captureImageAndConvert/getImage", p);
         }
 
         if (millis() - start > fingerWaitTimeoutMs)

@@ -3,6 +3,7 @@
  */
 const express = require('express');
 const router = express.Router();
+const PUNCH_OUT_COOLDOWN_MS = 5 * 60 * 1000;
 
 function todayStart() {
   const d = new Date();
@@ -34,6 +35,18 @@ async function markAttendanceByFingerprintId(Student, Attendance, fingerprintId,
     const error = new Error('attendance already completed for today');
     error.statusCode = 409;
     throw error;
+  }
+
+  if (hasIn && !hasOut) {
+    const lastIn = [...events].reverse().find((event) => event.eventType === 'IN');
+    if (lastIn) {
+      const elapsedMs = Date.now() - new Date(lastIn.createdAt).getTime();
+      if (elapsedMs < PUNCH_OUT_COOLDOWN_MS) {
+        const error = new Error('already punched in');
+        error.statusCode = 409;
+        throw error;
+      }
+    }
   }
 
   const eventType = hasIn ? 'OUT' : 'IN';
@@ -141,6 +154,14 @@ module.exports = (Student, Attendance) => {
       }
       if (hasOut) {
         return res.status(409).json({ ok: false, message: 'punch out already marked for today' });
+      }
+
+      const lastIn = [...events].reverse().find((event) => event.eventType === 'IN');
+      if (lastIn) {
+        const elapsedMs = Date.now() - new Date(lastIn.createdAt).getTime();
+        if (elapsedMs < PUNCH_OUT_COOLDOWN_MS) {
+          return res.status(409).json({ ok: false, message: 'already punched in' });
+        }
       }
 
       const attendance = await Attendance.create({ student: student._id, eventType: 'OUT', source: 'WEB' });
