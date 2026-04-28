@@ -10,15 +10,15 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 const char *ssid = "Lokesh";
 const char *password = "";
 
-const char *attendanceUrl = "http://10.185.57.198:3000/api/attendance/mark";
-const char *enrollmentNextUrl = "http://10.185.57.198:3000/api/device/enrollment/next";
-const char *enrollmentResultUrl = "http://10.185.57.198:3000/api/device/enrollment/result";
-const char *migrationNextUrl = "http://10.185.57.198:3000/api/device/migration/next";
-const char *migrationResultUrl = "http://10.185.57.198:3000/api/device/migration/result";
-const char *deleteNextUrl = "http://10.185.57.198:3000/api/device/delete/next";
-const char *deleteResultUrl = "http://10.185.57.198:3000/api/device/delete/result";
-const char *sensorClearNextUrl = "http://10.185.57.198:3000/api/device/sensor/clear/next";
-const char *sensorClearResultUrl = "http://10.185.57.198:3000/api/device/sensor/clear/result";
+const char *attendanceUrl = "https://biometricattendance-wtvt.onrender.com/api/attendance/mark";
+const char *enrollmentNextUrl = "https://biometricattendance-wtvt.onrender.com/api/device/enrollment/next";
+const char *enrollmentResultUrl = "https://biometricattendance-wtvt.onrender.com/api/device/enrollment/result";
+const char *migrationNextUrl = "https://biometricattendance-wtvt.onrender.com/api/device/migration/next";
+const char *migrationResultUrl = "https://biometricattendance-wtvt.onrender.com/api/device/migration/result";
+const char *deleteNextUrl = "https://biometricattendance-wtvt.onrender.com/api/device/delete/next";
+const char *deleteResultUrl = "https://biometricattendance-wtvt.onrender.com/api/device/delete/result";
+const char *sensorClearNextUrl = "https://biometricattendance-wtvt.onrender.com/api/device/sensor/clear/next";
+const char *sensorClearResultUrl = "https://biometricattendance-wtvt.onrender.com/api/device/sensor/clear/result";
 
 #define TOUCH_PIN 4
 #define BUZZER_PIN 5

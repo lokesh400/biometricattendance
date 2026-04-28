@@ -10,8 +10,8 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 const char *ssid = "Lokesh";
 const char *password = "";
 
-const char *attendanceUrl = "http://10.80.157.198:3000/api/attendance/mark";
-const char *enrollmentNextUrl = "http://10.80.157.198:3000/api/device/enrollment/next";
+const char *attendanceUrl = "http://10.25.167.198:3000/api/attendance/mark";
+const char *enrollmentNextUrl = "http://10.25.167.198:3000/api/device/enrollment/next";
 const char *enrollmentResultUrl = "http://10.80.157.198:3000/api/device/enrollment/result";
 const char *migrationNextUrl = "http://10.80.157.198:3000/api/device/migration/next";
 const char *migrationResultUrl = "http://10.80.157.198:3000/api/device/migration/result";
