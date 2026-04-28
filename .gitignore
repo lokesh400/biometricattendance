@@ -3,5 +3,5 @@ node_modules/
 attendance.db
 npm-debug.log*
 .github/
-esp32_fingerprint_attendance.ino
-working.ino
+# esp32_fingerprint_attendance.ino
+# working.ino
